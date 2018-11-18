@@ -52,7 +52,7 @@
     + Kulkarni, S., Bhagat, N., Fu, M., Kedigehalli, V., Kellogg, C., Mittal, S., … Taneja, S. (2015). Twitter Heron: Stream Processing at Scale. In SIGMOD Conference (pp. 239–250).
     + Fu, M., Agrawal, A., Floratou, A., Graham, B., Jorgensen, A., Li, M., … Wang, C. (2017). Twitter Heron: Towards Extensible Streaming Engines. In ICDE (pp. 1165–1172).
 
-* [Spark Streaming](Spark Stream.txt)
+* [Spark Streaming](Spark Streaming.txt)
     + Zaharia, M., Das, T., Li, H., Shenker, S., & Stoica, I. (2012). Discretized streams: an efficient and fault-tolerant model for stream processing on large clusters. In HotCloud (pp. 10–10).
     
 * MillWheel
