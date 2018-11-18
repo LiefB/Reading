@@ -1,6 +1,6 @@
 ## 分布式文件系统
 
-* [GFS](GFS.md)
+* [GFS](GFS.txt)
 
 ## 元数据管理系统
 
@@ -14,7 +14,7 @@
 
 ## 批处理系统
 
-* [MapReduce](MapReduce.md)
+* [MapReduce](MapReduce.txt)
 * Spark
 * Stratosphere
 * Dryad
