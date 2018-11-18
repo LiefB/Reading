@@ -1,0 +1,69 @@
+[TOC]
+#Spark Streaming
+##1.Abstract
+    提出了离散流(Discretized Streams,D-Streams)编程模型，具有高度抽象编程API、强一致性、高效的容错恢复。
+    基于Spark分布式计算框架，进行扩展实现了一个D-Stream的原型。
+
+
+##2.Introduction
+    实时响应的需求
+    
+    S4、Storm都是record-at-a-time
+    该模型的3个挑战：
+        ①容错：备份耗费存储设备、upstream backup恢复耗时。
+            Answer: RDDs in Memory
+        ②一致性：全局状态难追求，因为不同的结点处理的可能是不同时间到达的数据。
+            Answer: D-Stream核心思想：将处理流计算看作是在一个小的时间间隔上的一系列确定的批操作。
+        ③与批处理统一：难以整合事件驱动的流式计算系统与批量计算的API。
+            Answer: 处理模型也是(微)批处理，易与批处理系统结合。
+    
+    实现D-Stream模型的2个挑战：
+        ①低延迟
+            传统的批处理系统如MapReduce和Dryad将状态保存在磁盘上；
+            D-Stream将中间状态保存在内存中，若以key-value存储在内存中将耗费巨大存储代价(数据副本)，故采用RDDs(利用RDD的lineage血统重新计算来恢复的特性)。
+        ②从故障快速恢复
+            "parallel-recovery"机制，集群中所有结点并行重新计算失效的结点的RDDs，比upstream backup快且不用副本。
+            (parallel-recovery不适用于record-at-a-time的系统，因其难以维持的复杂状态)
+
+
+##3.Discretized Streams(D-Streams)
+    核心思想：将处理流计算看作是在一个小的时间间隔上的一系列确定的批操作。
+    
+    D-Streams（离散流,SparkStreaming的基本抽象）是代表连续流数据的一系列连续的RDDs序列。
+    
+    every time the window slides over a source DStream, the source RDDs that fall within the window are combined and operated upon to produce the RDDs of the windowed DStream.
+    
+    D-Streams Operators:
+        1.Transformation operators:
+            1.1 stateless operators:独立地在每个间隔内执行
+                map、reduce、groupby、join
+            1.2 statefull operators:在间隔之间共享数据
+                窗口函数：一段时间内数据发生的变化
+                    两个重要参数：
+                        窗口长度：窗口的持续时间
+                        滑动间隔：窗口操作的间隔
+                        (注意：这两个参数必须是DStream批次间隔的倍数)
+                增量聚合
+                    reduceByWindow
+                Time-skewed joins
+                    
+        2.Output operators
+            save、foreach
+
+
+##4.Fault Recovery
+    经典的流处理系统(record-at-a-time更新状态)用副本或upstream backup实现故障恢复。
+    relication缺点：
+        多副本，耗费存储硬件；
+        若多副本都损坏，则无法恢复。
+    upstream backup缺点：
+        upstream结点在本地缓存发往downsteam的数据，直到确认所有相关的计算都已完成。
+        当一个结点故障后，upstream结点将数据发往一个备份结点，并由备份结点处理这些数据。这个故障恢复方法会耗费大量的时间。
+    D-Stream采用parallel revovery
+        阶段性为一些状态RDDs设置检查点，并异步备份到其它结点。当故障发生，检测丢失的RDD分区，调动集群中所有结点从最近的检查点并行重新计算失效的结点的RDDs。
+        比upstream backup快，且不用副本。
+    先前流处理系统难做parallel recovery的原因
+        以每条记录为基准来处理数据(record-at-a-time)，甚至对基础的备份都需要复杂和巨大代价的记账协议。
+
+##5.Stragglers(拖后腿的节点)
+    和MapReduce一样，执行拖后腿任务的备份。
