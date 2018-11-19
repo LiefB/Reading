@@ -1,0 +1,76 @@
+[TOC]
+#Storm：《大数据技术原理与应用》
+##1.流计算概述
+###1.1 流数据的特征
+    数据快速持续到达，无穷无尽；
+    数据来源众多，格式复杂；
+    数据量大，但不十分关注存储，一旦数据经过处理，要么被丢弃，要么被归档存储；
+    注重数据的整体价值，不过分关注个别数据；
+    数据顺序颠倒或不完整，系统无法控制将要处理的新到达的数据元素的顺序；
+
+###1.2 MapReduce框架为何不适合处理流数据？
+    流数据不适合采用批量计算，因为流数据不适合用传统的关系型模型建模，不能把源源不断的数据保存到数据库中，流数据被处理后，一部分进入数据库成为静态数据，其它部分则直接被丢弃。
+        
+    批量任务处理在延迟方面无法满足流计算的实时响应需求。MapReduce在多台机器上并行运行MapReduce任务，最后对结果进行汇总输出，有时完成一个任务需要多轮的迭代。
+    ==> 将基于MapReduce的批量处理转化为小批量处理。带来如下问题：
+        ①切分成小片虽可降低延迟，但增加了任务处理的附加开销，且还要处理片间的依赖关系；
+        ②需对MapReduce进行改造以支持流式处理，Reduce结果不能直接输出，而是保存在内存中，会增加MapReduce框架复杂度，导致系统难以维护和扩展；
+        ③降低了用户程序的可伸缩性，用户必须使用MapReduce接口来定义流式作业；
+    
+    MapReduce是专门面向静态数据的批量处理的，内部实现机制做了高度优化，不适合用于处理持续到达的动态数据。
+
+
+##2.流计算的处理流程
+    数据实时采集 --> 数据实时计算 --> 实时查询服务
+    
+    传统的数据处理流程，需要用户主动发出查询；
+    而在流处理流程中，实时查询服务可以不断更新结果，并将用户所需的结果实时推送给用户。
+
+
+##3.流计算的应用
+    实时分析、实时交通
+
+
+##4.开源流计算框架Storm
+###4.1 Storm设计思想
+    1.Streams
+        Streams是流数据的抽象，流数据是一个无限的Tuple序列。
+        Tuple序列以分布式并行创建和处理。
+    
+    2.Spouts
+        Spouts是每个Stream的源头的抽象。
+        Spouts会从外部读取流数据并持续发出Tuple。
+    
+    3.Bolts
+        Bolts是Streams的状态转换过程的抽象。
+        Bolts既可以处理Tuple，也可以将处理后的Tuple作为新的Streams发送给其它Bolts。
+    
+    4.Topology
+        Topology是Spouts和Bolts组成的网络的抽象。
+        Topology是Storm中最高层次的抽象概念，可以被提交到Storm集群运行。一个Topology就是一个流转换图，图中的结点为Spout或Bolt，图中的边表示Bolt订阅了哪个Stream,当Spout或Bolt发送元组时，它会把元组发送到每个订阅了该Stream的Bolt上处理。
+    
+    5.Stream Groupings
+        Stream Grouping用于告知Topology如何在两个组件间（如Spout和Bolt之间或不同的Bolts之间）进行Tuple的传送。
+        6种分组方式：
+            Shuffle Grouping：随机分组，随机分发Tuple；
+            Fields Grouping：按字段分组，具有相同值的Tuple分发到对应的Bolt；
+            All Grouping：广播分发，每个Tuple都会被分发到所有Bolt中；
+            Global Grouping：全局分组，Tuple只会分发给一个Bolt；
+            Non Grouping：不分组，与随机分组效果类似；
+            Direct Grouping：直接分组，由Tuple的生产者来定义接受者。
+
+###4.2 Storm框架设计
+    分布式集群运行"Topology"，持续处理消息(直到人为终止)。
+    
+    "Master-Worker"架构：
+        Master节点运行"Nimbus"后台程序。分发代码、为Worker分配任务、监测故障；
+        Worker节点运行"Supervisor"后台程序。负责监听Master分配的任务以启动/停止Worker进程；
+    
+    采用Zookeeper分布式协调组件：
+        Nimbus和Supervisor后台进程都是快速失败(Fail-fast)和无状态(Stateless)的，Master节点不和Worker节点直接通信，而是借助Zookeeper将状态存放在Zookeeper或本地磁盘中，以便节点故障时快速恢复。
+    
+    工作流程：
+        ①client提交Topology到Storm集群中；
+        ②Nimbus将分配给Supervisor的任务写入Zookeeper；
+        ③Supervisor从Zookeeper中获取所分配的任务，并启动Worker进程；
+        ④Worker进程执行具体的任务。

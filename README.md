@@ -27,7 +27,7 @@
     + Dittrich, J., Quiané-Ruiz, J.-A., Jindal, A., Kargin, Y., Setty, V., & Schad, J. (2010). Hadoop++: Making a yellow elephant run like a cheetah (without it even noticing). PVLDB, 3(1), 515–529.
     + Chambers, C., Raniwala, A., Perry, F., Adams, S., Henry, R. R., Bradshaw, R., & Weizenbaum, N. (2010). FlumeJava: Easy, Efficient Data-parallel Pipelines. In PLDI (Vol. 45, pp. 363--375).
 
-* Spark
+* [Spark](Spark.txt)
     + Zaharia, M., Chowdhury, M., Das, T., Dave, A., Ma, J., Mccauley, M., … Stoica, I. (2012). Resilient Distributed Datasets : A Fault-Tolerant Abstraction for In-Memory Cluster Computing. In NSDI (pp. 15–28).
     + Zaharia, M., Chowdhury, M., Franklin, M. J., Shenker, S., & Stoica, I. (2010). Spark : Cluster Computing with Working Sets. In HotCloud (pp. 1–7).
 
@@ -47,7 +47,7 @@
     + Lam, W., Liu, L., Prasad, S., Rajaraman, A., Vacheri, Z., & Doan, A. (2012). Muppet: MapReduce-style Processing of Fast Data. PVLDB, 5(12), 1814–1825.
     + Neumeyer, L., Robbins, B., Nair, A., & Kesari, A. (2010). S4: Distributed Stream Computing Platform. In ICDMW (pp. 170–177).
 
-* Storm
+* [Storm](Storm.txt)
     + Toshniwal, A., Donham, J., Bhagat, N., Mittal, S., Ryaboy, D., Taneja, S., … Fu, M. (2014). Storm@twitter. In SIGMOD Conference (pp. 147–156).
     + Kulkarni, S., Bhagat, N., Fu, M., Kedigehalli, V., Kellogg, C., Mittal, S., … Taneja, S. (2015). Twitter Heron: Stream Processing at Scale. In SIGMOD Conference (pp. 239–250).
     + Fu, M., Agrawal, A., Floratou, A., Graham, B., Jorgensen, A., Li, M., … Wang, C. (2017). Twitter Heron: Towards Extensible Streaming Engines. In ICDE (pp. 1165–1172).
