@@ -1,0 +1,118 @@
+[TOC]
+#Spark
+##1.Introduction
+    需要重用中间结果的大量计算：如迭代机器学习、图算法、交互式数据挖掘。
+    若将中间结果存储到分布式文件系统，则磁盘I/O将会导致性能下降。
+    于是提出了RDDs(Resilient Distributed Datasets)：
+        高容错、并行、丰富的操作算子、高效、通用
+    
+    DSM与RDD
+        DSM细粒度状态更新，需要数据副本或机器更新日志来实现容错恢复；
+        RDDs粗粒度转换，只记录转换操作，而非记录真实数据，降低存储开销，lineage重新计算快速容错恢复；
+
+
+##2.Resilient Distributed Datasets(RDDs)
+###2.1 RDD Abstraction
+    RDD的5大特征：
+        ①一组分片（partition），即数据集的基本组成单位；
+        ②一个计算每个分片的函数；
+        ③对parent RDD的依赖，这个依赖描述了RDD之间的lineage；
+        ④对于key-value的RDD，一个Partitioner；
+        ⑤一个列表，存储存取每个partition的preferred位置。对于一个HDFS文件来说，存储每个partition所在的块的位置。
+
+###2.2 Spark Programming Interface
+    transformation
+        map、filter...
+    action
+        count、collect、save...
+    persist
+        持久化RDDs到内存以重用
+
+###2.3 Advantages of the RDD Model
+    RDD只能通过粗粒度转换来写RDDs(lineage容错恢复)，而DSM允许读写任意内存地址；
+    并行恢复，无需回滚；
+    调度任务到bulk数据周围(局部性)来提高性能；
+    基于扫描，内存不够使降级(磁盘)存储，此时性能与现有的流系统差不多；
+
+###2.4 Applications Not Suitable for RDDs
+    RDD适用于：         
+       对数据集中的所有元素使用同一操作的批量应用。在这种情况中，RDD可通过lineage高效记住每个转换，并且无需大量数据即可恢复丢失分区。
+    RDD不适用于：
+           在共享状态下的异步细粒度的更新，比如web存储系统，或增量式web爬虫，这些更适合于用传统的日志更新，或是数据检查点。
+    我们的目标是为批量分析提供高效的编程模型。
+
+
+##3.Spark Programming Interface
+    选择函数式编程的Scala，简明(易交互)+高效(静态类型)。
+        
+    为使用Spark，开发者需编写连接一个集群中所有worker的driver程序。
+    driver(master)定义了一个或多个RDD，并调用这些RDD上的动作，driver(master)也可以跟踪RDD的lineage，worker是生存期较长的进程，它们可以将RDD分区存储在内存中。
+    
+    RDD是静态类型对象，由参数指定其元素类型，如RDD[int]是一个整型RDD，但可以省略类型(Scala支持类型推断)。
+###3.1 RDD Operations in Spark
+    transformation是惰性的，ation真正发起计算；
+    有一些算子(如join)只支持key-value RDD；
+    persist持久化；
+    用户可自定义Partitioner，一些算子（如groupByKey、reduceByKey、sort自动使用哈希或范围分区RDD）。
+
+###3.2 样例应用
+    梯度下降(.persist持久化到内存计算)
+    PageRank(.persist持久化 + 自定义Partitioner减小网络通信开销)
+
+
+##4.Representing RDDs
+###4.1 RDD的5大特征：
+    ①一组分片（partition），即数据集的基本组成单位；
+    ②一个计算每个分片的函数；
+    ③对parent RDD的依赖，这个依赖描述了RDD之间的lineage；
+    ④对于key-value的RDD，一个Partitioner；
+    ⑤一个列表，存储存取每个partition的preferred位置。对于一个HDFS文件来说，存储每个partition所在的块的位置。
+
+###4.2RDD依赖：
+    窄依赖：父RDD的分区至多被一个子RDD分区使用(无Shuffle)；
+    宽依赖：可被多个子RDD分区可使用(有Shuffle)。
+    依赖分类有2个原因：
+        1.窄依赖允许在一个集群结点上执行管道操作；而宽依赖需要先计算得到所有父分区的数据，然后节点之间执行类似MapReduce中的Shuffle操作。
+        2.倘若有一个节点失效，窄依赖可更高效的恢复，因为仅仅需要计算丢失的父分区，并且可并行地在其它节点上计算。而对于宽依赖，单节点的失效可能会造成所有祖先的某些分区信息的丢失，要全部重算。
+
+##5.Implementation
+###5.1 Job Scheduling
+    1.考虑了哪些RDD分区在内存中，当用户在RDD上执行一个action（如count、save），调度器会根据该RDD上的lineage图创建一个由stage构成的有向无环图。
+    其中stage的划分依据：
+        ①需要shuffle的宽依赖；
+        ②已计算好的可以短路父RDD计算的分区；
+    
+    2.基于数据局部性的延迟调度
+    若需处理某个结点内存中可得的分区，则将任务分配到那个结点上；
+    若需处理preferred locations（如HDFS）的分区，则将任务分配到那些结点上；
+        
+    3.故障恢复
+    若一个任务失败，如果它stage父RDDs可用，就在另一个节点上重新运行该任务；
+    如果某些stage不可用（比如shuffle时某个map输出丢失），重新提交该stage的任务并行计算丢失的分区；
+    
+    4.lookup操作可通过key来随机存取被哈希分区的RDD中的元素。这种情况下，如果某个需要的分区丢失，任务需要告诉调度器计算该分区。
+
+###5.2 Interpreter Integration
+
+###5.3 Memory Management
+    Spark为缓存RDD提供了3个选择：
+        ①在内存中反序列化为Java对象
+        这种方式性能最快，因为Java VM可以在本地访问每一个RDD元素；
+        ②在内存中序列化为数据
+        一种比Java对象更有效的内存策略，但性能稍低；
+        ③存储在磁盘上
+        太大以致不能放在RAM中，每次使用需要高代价的重新计算；
+    
+    为了管理有限的内存空间，提出了RDD级别上的LRU策略（最近最少使用）。
+    当计算一个新的RDD时所需空间不足，便将最近最少使用的RDD替换出去，除非如它与具有新分区的RDD是同一个RDD。这种情况下，在内存中记录旧分区，以防止同一个RDD循环的进来、出去。
+        
+    另外，用户可以为每个RDD指定“缓存优先级”
+
+###5.4 Support for Checkpointing
+    为长lineage链设置检查点：尽管多数情况下可以依赖lineage来恢复失效的RDD，但当lineage链比较长时，这种恢复较为耗时。
+    
+    当一条长lineage链中含有需shuffle的宽依赖时，检查点的设置是有效的，因为否则要全部重新计算。
+    
+    今后将实现自动检查点；
+    
+    且RDD是只读的，不需要考虑一致性，因此其检查点操作相对于别的通用分布式内存会更简单。
