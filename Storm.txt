@@ -1,5 +1,5 @@
 [TOC]
-#Storm：《大数据技术原理与应用》
+#Storm
 ##1.流计算概述
 ###1.1 流数据的特征
     数据快速持续到达，无穷无尽；
@@ -28,10 +28,16 @@
 
 
 ##3.流计算的应用
-    实时分析、实时交通
+    实时分析（推荐系统实时推荐）
+    实时交通、实时销量、流量统计
+    监控预警、金融系统
 
 
 ##4.开源流计算框架Storm
+    可扩展：并行运行在分布式集群中
+    异常健壮：集群易管理，可轮流重启节点
+    容错性好：自动进行故障节点的重启和任务重新分配
+    可靠的消息处理：Storm保证每个消息都能完整处理
 ###4.1 Storm设计思想
     1.Streams
         Streams是流数据的抽象，流数据是一个无限的Tuple序列。
@@ -43,11 +49,11 @@
     
     3.Bolts
         Bolts是Streams的状态转换过程的抽象。
-        Bolts既可以处理Tuple，也可以将处理后的Tuple作为新的Streams发送给其它Bolts。
+        Bolts处理到来的Tuple，并将处理后的Tuple作为新的Streams发送给next Bolts。
     
     4.Topology
         Topology是Spouts和Bolts组成的网络的抽象。
-        Topology是Storm中最高层次的抽象概念，可以被提交到Storm集群运行。一个Topology就是一个流转换图，图中的结点为Spout或Bolt，图中的边表示Bolt订阅了哪个Stream,当Spout或Bolt发送元组时，它会把元组发送到每个订阅了该Stream的Bolt上处理。
+        Topology是Storm中最高层次的抽象概念，可以被提交到Storm集群运行。一个Topology就是一个流转换图（可以有环），图中的结点为Spout或Bolt（Computation），图中的边表示Bolt订阅了哪个Stream（Flow）,当Spout或Bolt发送元组时，它会把元组发送到每个订阅了该Stream的Bolt上处理。
     
     5.Stream Groupings
         Stream Grouping用于告知Topology如何在两个组件间（如Spout和Bolt之间或不同的Bolts之间）进行Tuple的传送。
@@ -62,15 +68,40 @@
 ###4.2 Storm框架设计
     分布式集群运行"Topology"，持续处理消息(直到人为终止)。
     
-    "Master-Worker"架构：
-        Master节点运行"Nimbus"后台程序。分发代码、为Worker分配任务、监测故障；
-        Worker节点运行"Supervisor"后台程序。负责监听Master分配的任务以启动/停止Worker进程；
+    "Master-Worker"主从架构：
+        Master节点运行"Nimbus"后台程序。分发代码；为Worker分配任务；监测故障；
+        Worker节点运行"Supervisor"后台程序。负责监听Master分配的任务以启动/停止Worker进程(一个supervisor可以启动多个Worker，一个Worker一个slot)；
+                                   Supervisor          Workers        Executors
+                  Zookeeper        Supervisor          Workers        Executors
+    Nimbus  <==>  Zookeeper  <==>  Supervisor   <==>   Workers  <==>  Executors
+                  Zookeeper        Supervisor          Workers        Executors
+                                   Supervisor          Workers        Executors
     
-    采用Zookeeper分布式协调组件：
-        Nimbus和Supervisor后台进程都是快速失败(Fail-fast)和无状态(Stateless)的，Master节点不和Worker节点直接通信，而是借助Zookeeper将状态存放在Zookeeper或本地磁盘中，以便节点故障时快速恢复。
+        worker process = worker receive thread + worker send thread
+        executor = user logic thread + executor send thread
+    
+    采用Zookeeper分布式协调组件(文件系统+通知机制)：
+        ①Nimbus与Supervisor进行通信(分配任务和心跳)，同步；
+        ②Supervisor和Worker进行通信(分配任务和心跳)；
+        ③Nimbus高可用(HA机制)；
+        Nimbus和Supervisor后台进程都是快速失败(Fail-fast)和无状态(Stateless)的，Master节点不和Worker节点直接通信，而是借助Zookeeper将状态存放在Zookeeper或本地磁盘中，以便节点故障时快速恢复。(==>极其稳定)
     
     工作流程：
         ①client提交Topology到Storm集群中；
-        ②Nimbus将分配给Supervisor的任务写入Zookeeper；
+        ②Nimbus读取代码和配置，将分配给Supervisor的任务写入Zookeeper；
         ③Supervisor从Zookeeper中获取所分配的任务，并启动Worker进程；
-        ④Worker进程执行具体的任务。
+        ④Worker进程启动一个或多个Executor线程执行具体的任务。
+
+###4.3 可靠数据处理
+    at-least-once
+        输入Topology的每个Tuple至少被处理一次。
+        实现方案：
+            设置“acker" Bolt跟踪每个Spout发出的Tuple。
+    at-most-once
+        每个Tuple要么被处理一次，要么作为failure被丢弃。
+        实现方案：
+            为每个Tuple附一个64位的“messageid”①在其流入Spout时或者②在Tuple处理时所产生的新的Tuple，将message id表保存在provenance tree中。
+            当一个Tuple流出Topology时，用backflow机制找到其Spout。
+
+
+

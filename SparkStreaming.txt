@@ -53,7 +53,7 @@
 
 ##4.Fault Recovery
     经典的流处理系统(record-at-a-time更新状态)用副本或upstream backup实现故障恢复。
-    relication缺点：
+    replication缺点：
         多副本，耗费存储硬件；
         若多副本都损坏，则无法恢复。
     upstream backup缺点：
