@@ -100,8 +100,18 @@
     at-most-once
         每个Tuple要么被处理一次，要么作为failure被丢弃。
         实现方案：
-            为每个Tuple附一个64位的“messageid”①在其流入Spout时或者②在Tuple处理时所产生的新的Tuple，将message id表保存在provenance tree中。
+            为每个Tuple附一个64位的“messageid”①在其流入Spout时或者②在Tuple处理时所产生/完成的新的Tuple，将message id表保存在provenance tree中。
             当一个Tuple流出Topology时，用backflow机制找到其Spout。
+    
+    acker bolt
+    Tuple-at-a-time
+    spout messageid
+    tuple树处理成功/失败（只要任一节点失败则为失败）
+    anchor(oldTuple，newTuple) 锚定
+    XOR
+        lineage跟踪在处理很多Tuple、很复杂的时候，维持跟踪将耗费acker的内存；
+        每次产生或处理完成一个Tuple时，将①原始Tuple message id + ②XORed message ids + ③timeout parameter发送给acker bolt；
+        当一个Tuple离开Topology时，若其XORed message ids = 0，则告诉Spout处理成功，若不等于0或者超过timeout还未收到ack和fail，则认为处理失败，告诉Spout重新发送该Tuple重新处理。
 
 
 
