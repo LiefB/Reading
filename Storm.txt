@@ -115,3 +115,45 @@
 
 
 
+
+#Heron
+##1.Introduction
+    性能提升
+    更少的资源消耗
+    debug-ability
+    可扩展
+    易管理
+    向下兼容Storm and Summingbird APIs
+
+
+##2.Motivation for Heron
+###2.1 Storm Worker Architecture
+    worker设计十分复杂。
+    ①executor线程调度 + 线程内部tasks调度  ==>  难以确定tasks何时被调度；
+    ②每个worker可以运行不同的tasks  ==>  难以独立每个task的行为、性能和独自的资源占用  ==>  重启Topology解决纷争  ==>  任务会被重新调度到与其他任务一起运行，难以追溯到原始问题；
+    ③一个task的未处理的异常会拖累整个worker，导致其它tasks也被杀死；
+    ④各个tasks的日志被写入同一个文件  ==>  日志杂乱难以定位某个task的错误和异常；
+    ⑤不同的tasks  ==>  垃圾回收难以实现；
+    ⑥Storm认为每个worker都是对等的  ==>  资源过度分配；
+    ⑦worker的receive和send线程 + executor的userlogic和send线程  ==>  过载和队列争夺，Queue是瓶颈、内存阻塞；
+
+###2.2 Storm Nimbus
+    职能过多，成为瓶颈。
+    任务调度、监测、分发JARs、指标报告、管理Topology counters。
+    ①资源调度问题（没有资源隔离）；
+    ② 基于Zookeeper的Nimbus和Supervisor之间的心跳机制，Zookeeper成为瓶颈，于是使用“heartbeat” daemons，需要独立监视主机和心跳守护进程；
+    ③单点故障；
+
+###2.3 Lack of Backpressure
+    丢弃tuple的fail-fast机制会带来如下问题：
+        如果关闭ack机制，则Tuple丢失无法量化
+        上流工作作废；
+        系统行为难以预测；
+
+###2.4 Efficiency
+    ①tuple树中一个节点失败，重放整个tuple树；
+    ②占用大量内存的Topology的worker垃圾回收慢，导致高延迟、高tuple失败率；
+    ③队列瓶颈；
+
+
+##3.Heron
