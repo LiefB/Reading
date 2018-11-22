@@ -1,0 +1,67 @@
+[TOC]
+#Flink
+##1.Introduction
+    流处理和批处理通常被认为是两种类型非常不同的处理系统；
+    “Lambda architecture”：“整合”批处理和流处理；
+    Flink用数据流处理“统一”了实时分析、流处理、批处理的编程模型和执行引擎；
+        批处理是流处理的特例（有限流）
+        持久的消息队列、数据流重放
+        高度灵活的窗口机制
+
+
+##2.系统架构
+    streams连接起来的有状态的operators的DAG。
+    DataSet和DataStream API都运行在流数据流引擎上；
+    
+    Client：
+        转换程序代码为数据流图；
+        对DataSet程序做基于代价的查询优化；
+    JobManager：
+        跟踪每个operator和stream的状态和进度；
+        调度新的operator；
+        协调检查点和容错恢复；
+    TaskManager：
+        执行operators；
+        报告状态给JobManager；
+        心跳；
+        缓冲或物化streams的缓冲池；
+        operators之间交换data streams的网络连接；
+
+
+##3.Streaming Dataflows
+###3.1 Dataflow图
+    Dataflow Graph：a DAG consists of stateful operators and data streams;
+        operators并行成一个或多个并行实例“subtask”；
+        streams被切分成一个或多个stream分区（一个subtask对应一个stream分区）；
+
+###3.2 中间Data Stream的数据交换
+    1.Pipelined and Blocking Data Exchange
+        pipelined intermediate streams提供从消费者到生产者的后压（back pressure）+ 减少物化；
+        Blocking steams提供消费 + 独立开生产和消费operators；
+    
+    2.平衡延迟和吞吐量
+        缓冲被送往消费者①缓冲满②触发timeout；
+        高吞吐：设置一个大的buffer size；
+        低延迟：设置一个小的timeout值；
+    
+    3.Control Events
+        checkpoint barriars
+        watermarks
+        iteration bariers
+
+###3.3 容错
+    exactly-once；
+    检查点、部分重新执行；
+    前提假设：数据源是持久的（不持久的可以用WAL）、可重放的；
+    检查点机制：Asynchronous Barrier Snapshotting（ABS）
+        Barriers作为控制记录插入streams，带有一个逻辑时间将stream划分为当前快照和以后将要快照的两部分；
+        将operator状态写入永久存储(如HDFS)；
+        恢复时找最近的检查点，将状态逆转到检查点的状态，并最多重新计算两个Barrier间的记录数；
+ 
+###3.4 Iterative Dataflows
+    Head、Tail、Feedback
+    Iteration Steps
+
+
+##4.Steam Analytics on Top of Dataflows
+
