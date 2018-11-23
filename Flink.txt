@@ -54,9 +54,12 @@
     检查点、部分重新执行；
     前提假设：数据源是持久的（不持久的可以用WAL）、可重放的；
     检查点机制：Asynchronous Barrier Snapshotting（ABS）
-        Barriers作为控制记录插入streams，带有一个逻辑时间将stream划分为当前快照和以后将要快照的两部分；
-        将operator状态写入永久存储(如HDFS)；
-        恢复时找最近的检查点，将状态逆转到检查点的状态，并最多重新计算两个Barrier间的记录数；
+        Barriers作为控制记录插入streams，一起向下流动，带有一个逻辑时间将stream划分为当前快照和以后将要快照的两部分；
+        接受超过一个输入流的operator需要基于barrier对齐！operator一接收到某个输入流的barrierN就不能继续处理此数据流后序的数据，直到operator收到其余流的barrierN，否则会将snapshot n的数据和snapshot n+1的数据搞混；
+            注：exactly-once降低了点效率，若收到一个barrierN后继续处理该流的数据，则降级为at-least-once。
+        收到所有输入数据流的barrier后，将operator状态快照，写入永久存储(如HDFS)；
+            注：operator向后端存储快照时，为不影响之前的状态对象，会停止处理输入的数据，可以采用copy-on-write写时复制技术。
+        恢复时找最近的检查点，将状态逆转到检查点的状态，最多重新计算的量取决于两个Barrier间的记录数；
  
 ###3.4 Iterative Dataflows
     Head、Tail、Feedback
@@ -64,4 +67,45 @@
 
 
 ##4.Steam Analytics on Top of Dataflows
+###4.1 Time Notion
+    event-time(外部产生的不变事件时间)与processing-time(各节点机器系统时间)存在乱序、迟到等问题，将low watermarks作为事件插入数据流中流转到下游operators，表示小于该时间戳的事件都已到达，low watermark到达某个值，窗口关闭，触发窗口计算；
+    processing-time：低延迟，但不保证确定性（取决于数据到达系统的速度、数据在operators之间流动的速度）；
+    event-time：有一定延迟，但保证正确性（watermark机制）；"Because of that, event time programs are often combined with processing time operations"
 
+###4.2 Stateful Stream Processing
+    状态对机器学习、图计算、用户session处理、窗口聚合等是关键。
+    状态可以是一个计数器、sum、分类树、大稀疏矩阵、Stream Windows是状态算子（内存更新记录）；
+
+###4.3 Stream Windows
+    assigner、trigger、evictor
+
+###4.4 Asynchronous Stream Iterations
+    机器学习、图计算
+
+
+##5. Batch Analytics on Top of Dataflows
+    批计算与流计算统一运行时，blocked data streams；
+    必要时关闭阶段性快照，从最近的物化的流中replay；
+    Blocking operators；
+    a dedicated Dataset API；
+    查询优化层；
+###5.1 查询优化
+    等价查询、代价模型
+
+###5.2 内存管理
+    内存管理、定制的序列化工具、缓存友好的数据结构和算法、堆外内存、JIT编译优化。
+    显式的内存管理并用序列化方式存储对象。
+    JVM 存在的几个问题：
+        1.Java 对象存储密度低。一个只包含boolean属性的对象占用了16个字节内存：对象头占了8个，boolean属性占了1个，对齐填充占了7个。而实际上只需要一个bit（1/8字节）就够了。
+        2.Full GC会极大地影响性能，尤其是为了处理更大数据而开了很大内存空间的JVM来说，GC会达到秒级甚至分钟级。
+        3.OOM问题影响稳定性。OutOfMemoryError是分布式计算框架经常会遇到的问题，当JVM中所有对象大小超过分配给JVM的内存大小时，就会发生OutOfMemoryError错误，导致JVM崩溃，分布式框架的健壮性和性能都会受到影响。
+    Flink 积极的内存管理以及直接操作二进制数据有以下几点好处：
+        1.减少GC压力。显而易见，因为所有常驻型数据都以二进制的形式存在 Flink 的MemoryManager中，这些MemorySegment一直呆在老年代而不会被GC回收。其他的数据对象基本上是由用户代码生成的短生命周期对象，这部分对象可以被 Minor GC 快速回收。只要用户不去创建大量类似缓存的常驻型对象，那么老年代的大小是不会变的，Major GC也就永远不会发生。从而有效地降低了垃圾回收的压力。另外，这里的内存块还可以是堆外内存，这可以使得 JVM 内存更小，从而加速垃圾回收。
+        2.避免了OOM。所有的运行时数据结构和算法只能通过内存池申请内存，保证了其使用的内存大小是固定的，不会因为运行时数据结构和算法而发生OOM。在内存吃紧的情况下，算法（sort/join等）会高效地将一大批内存块写到磁盘，之后再读回来。因此，OutOfMemoryErrors可以有效地被避免。
+        3.节省内存空间。Java对象在存储上有很多额外的消耗。如果只存储实际数据的二进制内容，就可以避免这部分消耗。
+        4.高效的二进制操作&缓存友好的计算。二进制数据以定义好的格式存储，可以高效地比较与操作。另外，该二进制形式可以把相关的值，以及hash值，键值和指针等相邻地放进内存中。这使得数据结构可以对高速缓存更友好，可以从L1/L2/L3缓存获得性能的提升。
+    Java生态圈实际上已经有不少出色的序列化库，包括Kryo、Apache Avro、Apache Thrift和 Google的ProtoBuf，然而Flink重新造了一套轮子以定制数据的二进制格式。
+    这带来了三点重要的优势：其一，掌握了对序列化后的数据结构信息，使得二进制数据间的比较甚至于直接操作二进制数据成为可能；其二，Flink依据计划要执行的操作来提前优化序列化结构，极大地提高了性能；其三，Flink可以在作业执行之前确定对象的类型，并在序列化时利用这个信息进行优化。
+
+###5.3 批迭代
+    delta iterations
