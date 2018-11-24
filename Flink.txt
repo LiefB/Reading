@@ -26,6 +26,11 @@
         心跳；
         缓冲或物化streams的缓冲池；
         operators之间交换data streams的网络连接；
+    
+    架构和 storm一样没有资源隔离。
+    
+    Flink4个执行图（StreamGraph,JobGraph(整合StreamGraph和OptimizedGraph),ExecutionGraph,物理执行图）和spark（数据依赖图,物理执行DAG）一样解耦合。
+
 
 
 ##3.Streaming Dataflows
@@ -68,9 +73,15 @@
 
 ##4.Steam Analytics on Top of Dataflows
 ###4.1 Time Notion
-    event-time(外部产生的不变事件时间)与processing-time(各节点机器系统时间)存在乱序、迟到等问题，将low watermarks作为事件插入数据流中流转到下游operators，表示小于该时间戳的事件都已到达，low watermark到达某个值，窗口关闭，触发窗口计算；
+    event-time(外部产生的不变事件时间)与processing-time(各节点机器系统时间)；
     processing-time：低延迟，但不保证确定性（取决于数据到达系统的速度、数据在operators之间流动的速度）；
-    event-time：有一定延迟，但保证正确性（watermark机制）；"Because of that, event time programs are often combined with processing time operations"
+    event-time：有一定延迟，但保证正确性（watermark机制）；"Because of that, event time programs are often combined with processing time operations"；
+    
+    "event-time + watermarks"机制：
+        存在迟到、乱序问题，将low watermarks作为事件插入数据流中流转到下游operators；
+        具有时间戳t的watermark表示断言小于等于该时间戳t的事件（在某种合理的概率上）都已到达；
+        每个事件都会延迟一段时间才到达，而这些延迟差异会比较大，所以有些事件会比其他事件延迟更多，导致乱序。一种简单的方法是假设这些延迟不会超过某个最大值，Watermark(currentMaxTimestamp - maxOutOfOrderness)。Flink把这种策略称作“有界无序生成策略”（bounded-out-of-orderness）。当然也有很多更复杂的方式去生成 watermark，但是对于大多数应用来说，固定延迟的方式已经足够了；
+        当前到达记录时间戳 > low watermark时，窗口关闭，触发窗口计算；
 
 ###4.2 Stateful Stream Processing
     状态对机器学习、图计算、用户session处理、窗口聚合等是关键。
@@ -99,6 +110,7 @@
         1.Java 对象存储密度低。一个只包含boolean属性的对象占用了16个字节内存：对象头占了8个，boolean属性占了1个，对齐填充占了7个。而实际上只需要一个bit（1/8字节）就够了。
         2.Full GC会极大地影响性能，尤其是为了处理更大数据而开了很大内存空间的JVM来说，GC会达到秒级甚至分钟级。
         3.OOM问题影响稳定性。OutOfMemoryError是分布式计算框架经常会遇到的问题，当JVM中所有对象大小超过分配给JVM的内存大小时，就会发生OutOfMemoryError错误，导致JVM崩溃，分布式框架的健壮性和性能都会受到影响。
+                        
     Flink 积极的内存管理以及直接操作二进制数据有以下几点好处：
         1.减少GC压力。显而易见，因为所有常驻型数据都以二进制的形式存在 Flink 的MemoryManager中，这些MemorySegment一直呆在老年代而不会被GC回收。其他的数据对象基本上是由用户代码生成的短生命周期对象，这部分对象可以被 Minor GC 快速回收。只要用户不去创建大量类似缓存的常驻型对象，那么老年代的大小是不会变的，Major GC也就永远不会发生。从而有效地降低了垃圾回收的压力。另外，这里的内存块还可以是堆外内存，这可以使得 JVM 内存更小，从而加速垃圾回收。
         2.避免了OOM。所有的运行时数据结构和算法只能通过内存池申请内存，保证了其使用的内存大小是固定的，不会因为运行时数据结构和算法而发生OOM。在内存吃紧的情况下，算法（sort/join等）会高效地将一大批内存块写到磁盘，之后再读回来。因此，OutOfMemoryErrors可以有效地被避免。
@@ -106,6 +118,12 @@
         4.高效的二进制操作&缓存友好的计算。二进制数据以定义好的格式存储，可以高效地比较与操作。另外，该二进制形式可以把相关的值，以及hash值，键值和指针等相邻地放进内存中。这使得数据结构可以对高速缓存更友好，可以从L1/L2/L3缓存获得性能的提升。
     Java生态圈实际上已经有不少出色的序列化库，包括Kryo、Apache Avro、Apache Thrift和 Google的ProtoBuf，然而Flink重新造了一套轮子以定制数据的二进制格式。
     这带来了三点重要的优势：其一，掌握了对序列化后的数据结构信息，使得二进制数据间的比较甚至于直接操作二进制数据成为可能；其二，Flink依据计划要执行的操作来提前优化序列化结构，极大地提高了性能；其三，Flink可以在作业执行之前确定对象的类型，并在序列化时利用这个信息进行优化。
+    
+    网络传输中的内存管理：
+        1.TaskManager（TM）在启动时，会先初始化NetworkEnvironment对象，TM 中所有与网络相关的东西都由该类来管理（如Netty连接），其中就包括NetworkBufferPool。根据配置，Flink会在NetworkBufferPool中生成一定数量（默认2048）的内存块MemorySegment（关于 Flink 的内存管理，后续文章会详细谈到），内存块的总数量就代表了网络传输中所有可用的内存。NetworkEnvironment和NetworkBufferPool是Task之间共享的，每个TM只会实例化一个。
+        2.Task 线程启动时，会向NetworkEnvironment注册，NetworkEnvironment会为Task 的InputGate（IG）和ResultPartition（RP）分别创建一个LocalBufferPool（缓冲池）并设置可申请的MemorySegment（内存块）数量。IG对应的缓冲池初始的内存块数量与 IG 中 InputChannel 数量一致，RP 对应的缓冲池初始的内存块数量与 RP 中的ResultSubpartition数量一致。不过，每当创建或销毁缓冲池时，NetworkBufferPool会计算剩余空闲的内存块数量，并平均分配给已创建的缓冲池。注意，这个过程只是指定了缓冲池所能使用的内存块数量，并没有真正分配内存块，只有当需要时才分配。为什么要动态地为缓冲池扩容呢？因为内存越多，意味着系统可以更轻松地应对瞬时压力（如GC），不会频繁地进入反压状态，所以我们要利用起那部分闲置的内存块。
+        3.在 Task 线程执行过程中，当Netty接收端收到数据时，为了将Netty中的数据拷贝到 Task 中，InputChannel（实际是 RemoteInputChannel）会向其对应的缓冲池申请内存块（上图中的①）。如果缓冲池中也没有可用的内存块且已申请的数量还没到池子上限，则会向 NetworkBufferPool 申请内存块（上图中的②）并交给 InputChannel填上数据（上图中的③和④）。如果缓冲池已申请的数量达到上限了呢？或者 NetworkBufferPool 也没有可用内存块了呢？这时候，Task的Netty Channel会暂停读取，上游的发送端会立即响应停止发送，拓扑会进入反压状态。当Task线程写数据到 ResultPartition时，也会向缓冲池请求内存块，如果没有可用内存块时，会阻塞在请求内存块的地方，达到暂停写入的目的。
+        4.当一个内存块被消费完成之后（在输入端是指内存块中的字节被反序列化成对象了，在输出端是指内存块中的字节写入到 Netty Channel 了），会调用 Buffer.recycle() 方法，会将内存块还给 LocalBufferPool （上图中的⑤）。如果LocalBufferPool中当前申请的数量超过了池子容量（由于上文提到的动态容量，由于新注册的Task导致该池子容量变小），则LocalBufferPool会将该内存块回收给 NetworkBufferPool（上图中的⑥）。如果没超过池子容量，则会继续留在池子中，减少反复申请的开销。
 
 ###5.3 批迭代
     delta iterations
