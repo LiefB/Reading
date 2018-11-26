@@ -56,15 +56,15 @@
 
 ###3.3 容错
     exactly-once；
-    检查点、部分重新执行；
-    前提假设：数据源是持久的（不持久的可以用WAL）、可重放的；
+    检查点机制 + 部分回滚重新执行 + managed state + state backend；
+    前提假设：数据源是持久的（不持久的可以用WAL）、可重放的(如消费Kafka队列数据)；
     检查点机制：Asynchronous Barrier Snapshotting（ABS）
         Barriers作为控制记录插入streams，一起向下流动，带有一个逻辑时间将stream划分为当前快照和以后将要快照的两部分；
         接受超过一个输入流的operator需要基于barrier对齐！operator一接收到某个输入流的barrierN就不能继续处理此数据流后序的数据，直到operator收到其余流的barrierN，否则会将snapshot n的数据和snapshot n+1的数据搞混；
-            注：exactly-once降低了点效率，若收到一个barrierN后继续处理该流的数据，则降级为at-least-once。
-        收到所有输入数据流的barrier后，将operator状态快照，写入永久存储(如HDFS)；
-            注：operator向后端存储快照时，为不影响之前的状态对象，会停止处理输入的数据，可以采用copy-on-write写时复制技术。
-        恢复时找最近的检查点，将状态逆转到检查点的状态，最多重新计算的量取决于两个Barrier间的记录数；
+                注：保证exactly-once降低了点效率，若收到一个barrierN后继续处理该流的数据，则barrierN以后的数据会影响到当前状态，故障恢复replay时就不保证exactly-once了，降级为at-least-once。
+        收到所有输入数据流的barrier后，将operator状态快照，依赖state backend可由另一线程异步写入永久存储(如HDFS)；
+    故障恢复时：
+        找最近的检查点，将状态逆转到检查点的状态，replay。某一节点故障的情况下，可以仅仅部分回滚涉及故障节点的一条线，其余结点忽略replay消息。
  
 ###3.4 Iterative Dataflows
     Head、Tail、Feedback
@@ -156,3 +156,40 @@
             自定义的聚合收敛（Custom aggregator convergence）；
     
     2.差异性迭代Delta iteration
+
+
+
+#State Management in Apache Flink
+##1.Introduction
+    缺少直接的计算状态抽象 --> 依赖外部数据库系统管理状态  --问题-->
+        需要应用逻辑来协调计算与外部数据库系统；
+        外部存储会成为瓶颈；
+        扩展操作困难；
+    
+    Spark牺牲了编程模型透明和处理延迟，使用以批处理为中心的应用逻辑；
+    还有其它一些建立在笨重的每条记录交易处理之上；
+    Flink整合了状态管理与计算；
+        基于分布式快照的一致性状态管理
+            modular state backend
+            failure recovery
+            reconfiguration
+    
+    有些快照机制：全局同步，备份时停止计算，保存了不需要的状态等；
+    Flink的分布式快照机制久经考验（state backend ==> 可由另外一线程异步snapshot）；
+
+
+##2.State
+###2.1 Managed State
+    1.Keyed-State
+        基于KeyedStream
+        Key-Groups是redistribute的最小单位（权衡了重分配时间和重分配所需元数据）
+    2.Operator-State
+        Non-Keyed，与Operator绑定，整个Oprerator只对应一个state
+        将状态存入ListState，遍历ListState来分配
+    state的数据结构：
+        ValueState、ListState、ReduceState、MapState
+
+
+##Exactly Once
+    1.Idempotent Sinks
+    2.Transactional Sinks
