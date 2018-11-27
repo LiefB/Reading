@@ -188,8 +188,20 @@
         将状态存入ListState，遍历ListState来分配
     state的数据结构：
         ValueState、ListState、ReduceState、MapState
+    
+    State Backend状态后端
+    
+    有了状态后端的支持，使用copy-on-write技术异步快照到持久存储中。
 
 
 ##Exactly Once
-    1.Idempotent Sinks
-    2.Transactional Sinks
+    1.内部exactly-once:
+        checkpoint机制
+    2.外部exactly-once（端到端end-to-end）:        
+        ①Idempotent Sinks
+        ②Transactional Sinks
+            事务sinks两阶段提交：
+                pre-commit：
+                每个进行snapshot的operator成功snapshot后,都会向JobManager发送ACK callback；当sink完成snapshot后, 向JobManager发送ACK的同时向kafka进行pre-commit；
+                commit：
+                当JobManager接收到所有算子的ACK后,就会通知所有的算子这次checkpoint已经完成。Sink接收到这个通知后, 就向kafka进行commit,正式把数据写入到kafka；
