@@ -93,15 +93,16 @@
         ④Worker进程启动一个或多个Executor线程执行具体的任务。
 
 ###4.3 可靠数据处理
-    at-least-once
+    1.at-least-once
         输入Topology的每个Tuple至少被处理一次。
         实现方案：
-            设置“acker" Bolt跟踪每个Spout发出的Tuple。
-    at-most-once
-        每个Tuple要么被处理一次，要么作为failure被丢弃。
-        实现方案：
-            为每个Tuple附一个64位的“messageid”①在其流入Spout时或者②在Tuple处理时所产生/完成的新的Tuple，将message id表保存在provenance tree中。
+            ①设置“acker" Bolt跟踪每个Spout发出的Tuple。
+            ②为每个Tuple附一个64位的“messageid”①在其流入Spout时或者②在Tuple处理时所产生/完成的新的Tuple，将message id表保存在provenance tree中。
             当一个Tuple流出Topology时，用backflow机制找到其Spout。
+    2.at-most-once
+        每个Tuple要么被处理一次，要么作为failure被丢弃。
+        when acking mechanism is disabled。
+            
     
     acker bolt
     Tuple-at-a-time
