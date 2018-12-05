@@ -65,6 +65,10 @@
         收到所有输入数据流的barrier后，将operator状态快照，依赖state backend可由另一线程异步写入永久存储(如HDFS)；
     故障恢复时：
         找最近的检查点，将状态逆转到检查点的状态，replay。某一节点故障的情况下，可以仅仅部分回滚涉及故障节点的一条线，其余结点忽略replay消息。
+    
+    Chandy-Lanport算法，即Asynchronous Distributed Snapshotting（ADS）
+        与ABS的区别是：接受超过一个输入流的operator，在收到第一个marker时就进行快照，并记录该channel的state为空集，然后向下游发送marker；收到第二个marker时，记录channel的state为快照时到收到该marker之间收到的消息......
+        ADS不会阻塞，但要记录channel状态；ABS会阻塞，但省去了记录channel状态。
  
 ###3.4 Iterative Dataflows
     Head、Tail、Feedback
