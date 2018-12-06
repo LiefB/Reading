@@ -80,18 +80,25 @@
 ###4.1 The Notion of Time
     3个时间概念：
         event-time(事件时间：不变的事件发生时间)
-        ingestion-time(摄取时间：事件进入流处理系统的时间)
+        ingestion-time(摄取时间：事件进入流处理系统的时间) 可以看作event-time的特例
         processing-time(处理时间：消息在各节点被处理的机器系统时间)；
     
     "event-time + watermarks"机制：
         存在迟到、乱序问题，将low watermarks作为事件插入数据流中流转到下游operators；
         具有时间戳t的watermark表示断言小于等于该时间戳t的事件（在某种合理的概率上）都已到达；
-        每个事件都会延迟一段时间才到达，而这些延迟差异会比较大，所以有些事件会比其他事件延迟更多，导致乱序。一种简单的方法是假设这些延迟不会超过某个最大值，Watermark(currentMaxTimestamp - maxOutOfOrderness)。Flink把这种策略称作“有界无序生成策略”（bounded-out-of-orderness）。当然也有很多更复杂的方式去生成 watermark，但是对于大多数应用来说，固定延迟的方式已经足够了；
-        当前到达记录时间戳 > low watermark时，窗口关闭，触发窗口计算；
+        当operator收到大于时间窗口的WaterMark时，窗口关闭，发出窗口计算，它对所有小于该WaterMark时间戳的时间窗口的数据进行处理，并发送到下一个operator，然后也将WaterMark发送到下一个操作符节点；
     
+        生成watermark：
+            每个事件都会延迟一段时间才到达，而这些延迟差异会比较大，所以有些事件会比其他事件延迟更多，导致乱序。一种简单的方法是假设这些延迟不会超过某个最大值，Flink把这种策略称作“有界无序生成策略”（bounded-out-of-orderness）。当然也有很多更复杂的方式去生成watermark，但是对于大多数应用来说，固定延迟的方式已经足够了；
+            当前Watermark(currentMaxTimestamp - maxOutOfOrderness) > 某个值时，发出watermark事件插入数据流中；
+    
+        为了保证能够处理所有属于某个时间窗口的消息，操作符必须等到大于这个时间窗口的WaterMark之后，才能开始对该时间窗口的消息进行处理，相对于基于Operator Time的时间窗口，Flink需要占用更多的内存，且会直接影响消息处理的延迟时间。对此，一个可能的优化措施是，对于聚合类的操作符，可能可以提前对部分消息进行聚合操作，当有属于该时间窗口的新消息流入时，基于之前的部分聚合结果继续计算，这样的话，只需缓存中间计算结果即可，无需缓存该时间窗口的所有消息。
+        Time Skew（ideal watermark与actual watermark之间的时间倾斜）决定了该WaterMark与上一个WaterMark之间的时间窗口所有数据需要缓存的时间，Time Skew时间越长，该时间窗口数据的延迟越长，占用内存的时间也越长，同时会对流处理系统的吞吐量产生负面影响。
+
     processing-time：低延迟，但不保证确定性（取决于数据到达系统的速度、数据在operators之间流动的速度）；
     event-time：有一定延迟，但保证正确性（watermark机制）；
-    "Because of that, event time programs are often combined with processing time operations"；
+
+    
 
 ###4.2 Stateful Stream Processing
     状态对机器学习、图计算、用户session处理、窗口聚合等是关键。
