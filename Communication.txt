@@ -1,0 +1,25 @@
+#2018-12-07
+    流处理的checkpoint：
+        pipeline snapshot（Distributed Snapshotting）
+        “state”！
+    微批处理Spark Streaming
+        1. RDD checkpoint
+            不是state，而是对RDD lineage checkpoint
+        2. epoch checkpoint
+            Streaming的state，一批好了下一批才能进来
+
+    计算和容错：pipeline
+        非阻塞，无延迟
+    流处理：pipeline比blocking好
+    批处理：pipeline不一定比blocking好
+    Flink对批处理有Optimizer
+
+#2018-12-14
+    延迟：①水位线内；②水位线外(丢弃；到达时窗口还在则repair)
+    
+    ZooKeeper：JobManager HA，Flink迭代双屏障同步中间状态
+    
+    MapReduce、Spark迭代靠外部Loop
+    
+    External State Backend与Local State Backend：
+        LSM
