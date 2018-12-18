@@ -29,7 +29,7 @@
         顶点：有一个string顶点描述符
         边：与源顶点、目标顶点关联
     迭代计算：
-        在每个superstep中，顶点的计算都是并行的，每个顶点执行相同的用于表达给定算法逻辑的用户自定义函数。每个顶点可以修改其自身及其出边的状态，接收前一个superstep(S-1)中发送给它的消息，并发送消息给其他顶点(这些消息将会在下一个超级步中被接收)，甚至是修改整个图的拓扑结构。在这种计算模式中edge并不是一等公民,因为没有相应的计算运行在边上。
+        在每个superstep中，顶点的计算都是并行的，每个顶点执行相同的用于表达给定算法逻辑的用户自定义函数。每个顶点可以修改其自身及其出边的状态，接收前一个superstep(S-1)中发送给它的消息，并发送消息给其他顶点(这些消息将会在下一个superstep中被接收)，甚至是修改整个图的拓扑结构。在这种计算模式中edge并不是一等公民,因为没有相应的计算运行在边上。
     算法的终止：
         算法的终止取决于是否所有的顶点都已经“vote”标识其自身已经达到“halt”状态了。在第0个superstep，所有顶点都处于active状态，所有的active顶点都会参与所有对应superstep中的计算。顶点通过将其自身的status设置成“halt”来表示它已经不再active。这就表示该顶点没有进一步的计算需要执行，除非被再次被外部触发，而Pregel框架将不会在接下来的superstep中执行该顶点，除非该顶点收到其它顶点传送的消息。如果顶点接收到消息被唤醒进入active状态，那么在随后的计算中该顶点必须显式的deactive。整个计算在所有顶点都达到“inactive”状态，并且没有message在传送的时候宣告结束。
     计算的输出是所有顶点输出的集合：
@@ -72,3 +72,44 @@
 ###3.5 Input and Output
     Reader、Writer
 
+
+##4.Implementation
+    配合：集群管理系统，命名服务系统，分布式文件系统，本地磁盘缓存；
+
+###4.1 Basic architecture
+    顶点partition。默认partition函数为hash(vertexID) mod NumMachine；
+    Pregel程序执行过程：
+        ①用户程序的多个copy开始在集群中的机器上执行。一Master协调，多Workers执行任务；
+        ②Master分配一个或多个partition给每个Worker节点，Worker维护状态、执行Compute函数、接收发送消息，每一个worker都知道该图的计算在所有worker中的分配情况；
+        ③Master进程为每个worker分配用户输入中的一部分（顶点和边的记录集合）。对输入的划分和对整个图的划分是正交的，通常都是基于文件边界进行划分。如果一个worker加载的顶点刚好是这个worker所分配到的那一部分，那么相应的数据结构就会被立即更新。否则，该worker就需要将它发送到它所应属于的那个worker上。当所有的输入都被load完成后，所有的顶点将被标记为active状态
+        ④Master给每个worker发指令，让其运行一个superstep，worker会为每个partition启动一个线程，轮询在其之上的顶点。调用每个active顶点的Compute()函数，传递给它从上一次superstep发送来的消息。消息是被异步发送的，这是为了使得计算和通信可以并行，以及batching，但是消息的发送会在本superstep结束前完成。当一个worker完成了其所有的工作后，会通知master，并告知当前该worker上在下一个superstep中将还有多少active节点。不断重复该步骤，只要有顶点还处在active状态，或者还有消息在传输。 
+        ⑤计算结束后，master会给所有的worker发指令，让它保存它那一部分的计算结果。
+
+###4.2 Fault Tolerance
+    checkpointing容错。
+    在每个superstep的开始阶段，master命令worker让它保存它上面的partitions的状态到持久存储设备，包括顶点值，边值，以及接收到的消息。Master自己也会保存aggregator的值；
+    心跳，恢复时回滚到最近的checkpoint，并所有的!partition的supersteps重新执行；
+    Confined Recovery：
+        worker同时还会将其在加载图的过程中和superstep中发送出去的消息写入日志。这样恢复就会被限制在丢掉的那些partitions上；
+
+###4.3 Worker implementation
+    一个worker机器会在内存中维护分配到其之上的graph partition的状态。
+    (vertexID) map (vertexValue,outgoingEdges,incomingMessageQueue,activeFlag)；
+    该worker在每个superstep中，会循环遍历所有顶点，并调用每个顶点的Compute()函数、传给该函数顶点的当前值、一个接收到的消息的迭代器和一个出边的迭代器。
+    性能：
+        标志顶点是否为active的标志位是和输入消息队列分开保存的；
+        另外，只保存了一份顶点值和边值，但有两份顶点active flag和输入消息队列存在，一份是用于当前superstep，另一个用于下一个superstep。当一个worker在进行superstep S的顶点处理时，同时还会有另外一个线程负责接收从处于同一个superstep的其他worker接收消息。由于顶点当前需要的是superstep S-1的消息，那么对superstep S和superstep S+1的消息就必须分开保存。类似的，顶点V接收到了消息表示V将会在下一个superstep中处于active，而不是当前这一次；
+        当Compute()请求发送一个消息到其他顶点时，worker首先确认目标顶点是属于远程的worker机器，还是当前worker。如果是在远程的worker机器上，那么消息就会被缓存，当缓存大小达到一个阈值，最大的那些缓存数据将会被异步地flush出去，作为单独的一个网络消息传输到目标worker。如果是在当前worker，那么就可以做相应的优化：消息就会直接被放到目标顶点的输入消息队列中；
+        如果用户提供了Combiner，那么在消息被加入到输出队列或者到达输入队列时，会执行combiner函数。后一种情况并不会节省网络开销，但是会节省用于消息存储的空间；
+
+###4.4 Master implementation
+    协调workers工作，workerID、worker IP地址、worker portion；
+    barrier synchronize；
+    Master同时还保存着整个计算过程以及整个graph的状态的统计数据，如图的总大小，关于出度分布的柱状图，处于active状态的顶点个数，在当前superstep的时间信息和消息流量，以及所有用户自定义aggregators的值等。为方便用户监控，Master在内部运行了一个HTTP服务器来显示这些信息；
+
+###4.5 Aggregators
+    每个Aggregator会通过对一组value值集合应用aggregation函数计算出一个全局值。每一个worker都保存了一个aggregators的实例集，由type name和实例名称来标识。当一个worker对graph的某一个partition执行一个superstep时，worker会combine所有的提供给本地的那个aggregator实例的值到一个local value：即利用一个aggregator对当前partition中包含的所有顶点值进行局部规约。在superstep结束时，所有workers会将所有包含局部规约值的aggregators的值进行最后的汇总，并汇报给master。这个过程是由所有worker构造出一棵规约树而不是顺序的通过流水线的方式来规约，这样做的原因是为了并行化规约时cpu的使用。在下一个superstep开始时，master就会将aggregators的全局值发送给每一个worker。
+
+
+##5.Application
+    PageRank、最短路径、二部图匹配、Semi-Clusting算法；
