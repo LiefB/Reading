@@ -1,3 +1,4 @@
+[TOC]
 #Pregel
 ##0.Abstract
     背景：社交网络，数十亿顶点、数万亿边；
@@ -17,9 +18,18 @@
         ④使用已有的并行图计算系统(Parallel BGL、CGMgraph)；无容错等分布式系统必要特性；
     
     Pregel：大规模、容错、API有效表达各种图算法；
+        inspired by BSP(Bulk Synchronous Parallel) model 整体同步并行计算模型
         vertex-centric  以顶点为中心
         superstep
         synchronicity  同步
+    
+    BSP模型：
+        1.Processors指的是并行计算进程，它对应到集群中的多个结点，每个结点可以有多个Processor；
+        2.LocalComputation就是单个Processor的计算，每个Processor都会切分一些结点作计算；
+        3.Communication指的是Processor之间的通讯。接触的图计算往往需要做些递归或是使用全局变量，在BSP模型中，对图结点的访问分布到了不同的Processor中，并且往往哪怕是关系紧密具有局部聚类特点的结点也未必会分布到同个Processor或同一个集群结点上，所有需要用到的数据都需要通过Processor之间的消息传递来实现同步；
+        4.Barrier Synchronization又叫障碍同步或栅栏同步。每一次同步也是一个超步的完成和下一个超步的开始；5.Superstep超步，这是BSP的一次计算迭代，拿图的广度优先遍历来举例，从起始结点每往前步进一层对应一个超步。
+        6.程序该什么时候结束呢？这个其实是程序自己控制，一个作业可以选出一个Proceessor作为Master，每个Processor每完成一个Superstep都向Master反馈完成情况，Master在N个Superstep之后发现所有Processor都没有计算可做了，便通知所有Processor结束并退出任务。
+
 
 
 ##2.Model of Computation
@@ -40,10 +50,29 @@
 
 
 ##3.The C++ API
-    继承Vertex类：
-        Compute；vertex_id；superstep；GetValue；MutableValue；GetOutEdgeIterator；SendMessageTo；VoteToHalt
+    继承Vertex类。
+    template <typename VertexValue, typename EdgeValue, typename MessageValue>
+    class Vertex {
+        public:
+        //定义的虚函数，Computer（）；用户的处理逻辑在这实现
+        virtual void Compute(MessageIterator* msgs) = 0;
+        //参数顶点ID
+        const string& vertex_id() const;
+        //记录执行的超步数
+        int64 superstep() const;
+        //获取顶点关联的值
+        const VertexValue& GetValue();
+        VertexValue* MutableValue();
+        //出射边迭代器，获取所有的出射边
+        OutEdgeIterator GetOutEdgeIterator();
+        //发送消息
+        void SendMessageTo(const string& dest_vertex, const MessageValue& message);
+        //设为停机
+        void VoteToHalt();
+    };
 
 ###3.1 Message Passing
+    ①消息传递有足够的表达能力；②异步、批量传递消息，缓解远程读取的延迟；
     顶点之间的通信是直接通过发送消息，每条消息都包含了消息值和目标顶点的名称。消息值的数据类型是由用户通过Vertex类的模版参数来指定。
     在一个superstep中，一个顶点可以发送任意多的消息。当顶点V的Compute()方法在superstep S+1中被调用时，所有在superstep S中发送给顶点V的消息都可以通过一个迭代器来访问到。在该迭代器中并不保证消息的顺序，但是可以保证消息一定会被传送并且不会重复。
     dest_vertex并不一定是顶点V的相邻顶点。一个顶点可以从之前收到的消息中获取到其非相邻顶点的标识符，或者顶点标识符可以隐式的得到。
@@ -64,7 +93,8 @@
     有一些图算法可能需要改变图的整个拓扑结构。比如一个聚类算法，可能会将每个聚类替换成一个单一顶点，又比如一个最小生成树算法会删除所有除了组成树的边之外的其他边。正如用户可以在自定义的Compute()函数能发送消息，同样可以产生在图中增添和删除边或顶点的请求；
     同一个superstep中可能产生冲突的请求(如两个请求都要增加一个顶点V，但初始值不一样)，两个机制保证确定性：局部有序和handlers；
     局部有序：
-        先点后边；
+        先删边，后删点；
+        先加点，后加边；
     handlers：
         用户可以在Vertex类中通过定义一个适当的handler函数来解决冲突；
     惰性协调机制，全局的拓扑改变在被apply之前不需要进行协调。对顶点V的修改引发的冲突由V自己来处理。
@@ -74,10 +104,14 @@
 
 
 ##4.Implementation
-    配合：集群管理系统，命名服务系统，分布式文件系统，本地磁盘缓存；
+    一个图计算任务会被分解到多台机器上同时执行:
+        集群管理系统，命名服务系统，临时文件本地磁盘缓存，持久化到分布式文件系统；
 
 ###4.1 Basic architecture
-    顶点partition。默认partition函数为hash(vertexID) mod NumMachine；
+    顶点partition:
+        每个分区包含一部分顶点以及以其为起点的边；
+        默认partition函数为hash(vertexID) mod NumMachine；
+        
     Pregel程序执行过程：
         ①用户程序的多个copy开始在集群中的机器上执行。一Master协调，多Workers执行任务；
         ②Master分配一个或多个partition给每个Worker节点，Worker维护状态、执行Compute函数、接收发送消息，每一个worker都知道该图的计算在所有worker中的分配情况；
@@ -104,7 +138,9 @@
 
 ###4.4 Master implementation
     协调workers工作，workerID、worker IP地址、worker portion；
-    barrier synchronize；
+    Master保存这些信息只与分区数量有关，故只有一个Master也能承担大规模图计算协调任务；
+    Barrier Synchronize：
+        可用ZooKeeper实现，每一次同步是一个superstep的完成和下一个superstep的开始；
     Master同时还保存着整个计算过程以及整个graph的状态的统计数据，如图的总大小，关于出度分布的柱状图，处于active状态的顶点个数，在当前superstep的时间信息和消息流量，以及所有用户自定义aggregators的值等。为方便用户监控，Master在内部运行了一个HTTP服务器来显示这些信息；
 
 ###4.5 Aggregators
@@ -113,3 +149,59 @@
 
 ##5.Application
     PageRank、最短路径、二部图匹配、Semi-Clusting算法；
+
+
+
+
+
+#From "Think Like a Vertex" to "Think Like a Graph"
+##0.Abstract
+    Giraph++：an open source implementation of Pregel.
+    vertex-centric -->  graph-centric
+
+
+##1.Introduction
+    单节点并行图分区算法  --图数据量激增-->  需要大规模分布式图分区解决方案；
+    MapReduce大规模并行计算模型不适合处理迭代计算（外部loop）；
+    
+    现有的大多数图处理系统的共性：
+        ①将输入图划分为并行的partitions；
+        ②使用vertex-centric编程模型，围绕vertex表达算法；
+    vertex-centric缺点：
+            在vertex-centric模型中每个vertex只有它邻居顶点的信息，因此信息在graph中一次一跳、缓慢地蔓延，即使在同一个分区中也需要将信息一步步地从source传到destination；
+    graph partitions：
+        每个graph分区代表一个适当的原始输入图的子图，而不是一些没有关系的vertex集合；
+
+
+##2.Giraph++：Graph-Centric Model
+###2.1 Internal Vertices and Boundary Vertices
+     Vi = Pi ∪ {v|(u,v)∈E ∧ u∈Pi}；
+     其中Pi代表internal vertex集合，也称为顶点的owner；  只存在于一个子图中；
+     Vi/Pi代表boundary vertex集合；  可以在0个或多个子图中；
+    
+    internal vertex：
+        拥有vertex value、edge values、incoming messages
+    boundary vertex：
+        只有一个关联的vertex value;
+        temporary local copy  --local compute and propagate to-->  primary copy in it's corresponding internal vertex；
+    
+    消息传递只发生在boundary vertices传到它们的primary copies：
+        ①internal vertices之间的信息交换是廉价且立即的，不需要网络消息或等待下一个superstep；
+        ②boundary vertices之间需要通过网络消息将改变扩散到owners，且需要在一个superstep结束的时候；
+
+###2.2 Giraph++ API
+    依旧按被全局同步barriers分隔的supersteps序列执行，但计算执行在一个分区中的整个子图上；
+    Vertex Class
+    GraphPartition Class
+    需要更少的messages和supersteps；
+
+
+##3. Exploring Giraph++
+###3.1 Graph Traversal
+    Connected Component Algorithm
+
+###3.2 Random Walk
+    PageRank
+
+###3.3 Graph Aggregation
+
