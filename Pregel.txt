@@ -111,6 +111,7 @@
     顶点partition:
         每个分区包含一部分顶点以及以其为起点的边；
         默认partition函数为hash(vertexID) mod NumMachine；
+        也可以自定义分区函数以减少计算节点之间的网络流量；
         
     Pregel程序执行过程：
         ①用户程序的多个copy开始在集群中的机器上执行。一Master协调，多Workers执行任务；
@@ -123,8 +124,13 @@
     checkpointing容错。
     在每个superstep的开始阶段，master命令worker让它保存它上面的partitions的状态到持久存储设备，包括顶点值，边值，以及接收到的消息。Master自己也会保存aggregator的值；
     心跳，恢复时回滚到最近的checkpoint，并所有的!partition的supersteps重新执行；
+    
     Confined Recovery：
-        worker同时还会将其在加载图的过程中和superstep中发送出去的消息写入日志。这样恢复就会被限制在丢掉的那些partitions上；
+        worker同时还会将其在加载图的过程中和superstep中发送出去的消息写入日志。这样恢复就会被限制在丢掉的那些partitions上：
+            恢复时：
+                首先reassign宕机机器上的partitions到新的机器上，reassign的机器利用checkpoint机制从最近的一个checkpoint恢复状态；
+                然后从superstep[checkpoint]到superstep[current]之间其它健康的机器的logged messages中找出发送到宕机机器的messages，并发送给reassign的机器执行以恢复到superstep[current]；
+
 
 ###4.3 Worker implementation
     一个worker机器会在内存中维护分配到其之上的graph partition的状态。
@@ -144,6 +150,7 @@
     Master同时还保存着整个计算过程以及整个graph的状态的统计数据，如图的总大小，关于出度分布的柱状图，处于active状态的顶点个数，在当前superstep的时间信息和消息流量，以及所有用户自定义aggregators的值等。为方便用户监控，Master在内部运行了一个HTTP服务器来显示这些信息；
 
 ###4.5 Aggregators
+    提供全局！信息(各局部aggregators汇总)；
     每个Aggregator会通过对一组value值集合应用aggregation函数计算出一个全局值。每一个worker都保存了一个aggregators的实例集，由type name和实例名称来标识。当一个worker对graph的某一个partition执行一个superstep时，worker会combine所有的提供给本地的那个aggregator实例的值到一个local value：即利用一个aggregator对当前partition中包含的所有顶点值进行局部规约。在superstep结束时，所有workers会将所有包含局部规约值的aggregators的值进行最后的汇总，并汇报给master。这个过程是由所有worker构造出一棵规约树而不是顺序的通过流水线的方式来规约，这样做的原因是为了并行化规约时cpu的使用。在下一个superstep开始时，master就会将aggregators的全局值发送给每一个worker。
 
 
