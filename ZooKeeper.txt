@@ -1,14 +1,14 @@
 【TOC】
 #ZooKeeper
     命名管理(Naming)
-    配置管理(Configuragion Management)
+    配置管理(Configuragion Management)    Zc
     集群管理(Group Membership)
-        状态监控(Status Monitoring)
-        选主(Leader Election)
+        状态监控(Status Monitoring)       EPHEMERAL
+        选主(Leader Election)             EPHEMERAL_SEQUENCIAL  选择序号最小的
     同步管理(Synchronization)
-        共享锁(Locks)
-        同步队列(Synchronous Queue)
-        双屏障(Double Barrier)
+        共享锁(Locks)               EPHEMERAL_SEQUENCIAL Watch序号比自己小1,等通知
+        同步队列(Synchronous Queue)       
+        双屏障(Double Barrier)            EPHEMERAL    ready、process目录
 
 
 ##1.Abstracct
@@ -24,15 +24,15 @@
     选择暴露API，使开发人员能够实现自己的原语；
     分层组织的无等待数据对象。在设计ZooKeeper时放弃阻塞原语（如锁）；
     无等待对性能和容错很重要，但对协调还不够，还必须提供操作的顺序保证。客户端操作FIFO、线性化写入；
-    基于领导的原子广播协议；
+    基于领导的原子广播协议(ZAB,基于Paxos)；
     监视机制（Watch）
 
 
 ##3.The ZooKeeper service
 ##3.1 概述
     Znode
-        常规节点：客户端显示创建和删除；
-        临时性节点：创建并显示删除，或会话终止时系统自动删除；
+        常规节点(Persist Node)：客户端显示创建和删除；
+        临时性节点(Ephemeral)：创建并显示删除，或会话终止时系统自动删除；
     
     Watch机制
         一次性触发器，不可更改；

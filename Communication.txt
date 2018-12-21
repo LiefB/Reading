@@ -21,5 +21,30 @@
     
     MapReduce、Spark迭代靠外部Loop
     
-    External State Backend与Local State Backend：
-        LSM
+    External State Backend 与 Local State Backend：
+        External State Backend不需要I/O:
+            failure节点需要reassign，因此无论如何都需要I/O；
+            alive节点：
+                LocalMemory，若内存能hold住，但cancel后memory没了(但理论上能保存);
+                FSState，磁盘I/O；
+                RocksDB，若还在内存中，还没flush到磁盘，则不需要I/O；
+
+#2018-12-21
+    Reconfigration如何减少I/O？
+        ①reconfigration会改变分区；
+        ②内存中状态如何hold住？
+        flink keyed group尽量减少需要改变分区的数量
+    
+    幂等and事务Sink
+        幂等：简单再提交一次；
+        事务：分布式中每个节点只知道自己成功与否，因此需要引入协调者进行2PC(Flink中等所有operator都汇报自己成功后才真正提交)；
+    
+    Message Passing Model
+        异步and批：减少消息传递所需建立连接次数以及报文冗余信息；
+    
+    Giraph、GraphLab、Giraph++、X-Stream：
+        Giraph：vertex-centirc
+        Giraph++：graph-centric
+        X-Stream：edge-centric
+        Giraph：基于BSP
+        GraphLab：异步不需要synchronize supersteps，打破BSP模型
