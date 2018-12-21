@@ -1,0 +1,62 @@
+Flink Stream SQL
+Flink DAG
+Flink State Management
+Exactly-Once、High Throughput、Low Latency、Fault Tolerance
+StandAlone、Yarn、Cloud
+流控反压机制
+17 Billions Events/Second
+
+全量(批处理)、增量(流处理) ==> Lambda架构：
+    要维护两套流程 + 两套流程的一致性
+
+Flink流式处理批作业优势：
+    在Shuffle时更少的CPU、IO、Network Bandwidth
+
+新架构：
+    Query Processer：定义了数据的格式、Building、算子、类型
+    二进制省去序列化、反序列化
+    不用担心OOM
+
+Flink不依赖于开辟大量内存来进行计算
+
+易用性：
+    Flink + Hive
+    Flink + Zeppelin
+
+机器学习：
+    不需要专门的参数服务器，参数可以用Flink State Management管理起来；
+    利用Flink增量迭代来进行参数更新；
+
+图计算：
+    State Management管理顶点状态；
+    增量迭代处理图更新；
+
+微服务：
+    多个微服务：库存、支付、物流
+    微服务之间的调用：
+        传统：同步，线程等待
+        Flink：异步 + Flow-Control反压
+
+Flink State Management：
+    将状态引入计算之中，将原来存储于数据库中的数据管理起来，而不再依赖于传统的外部数据库；
+Exactly-Once：
+    模拟传统事务的原子性，用一个流计算作业将业务逻辑与数据库逻辑包含起来；
+
+Stream Processing -> Stream & Batch Processing -> Bigdata Engine -> Bigdata & APP Engine
+    Flink重新定义计算：流、批流融合、机器学习、图、微服务等应用
+
+Flink 1.7新特性：
+    Time-versioned Joins
+    SQL技术
+    复杂事件处理技术
+    MATCH_RECOGNIZE
+    Schema Upgrade
+    S3 exactly-once
+
+事件驱动的应用：
+    Streaming Transaction Processing；
+    ×对事件排序(Event Time)；
+
+dA Streaming Ledger
+
+Shared Consistent State
