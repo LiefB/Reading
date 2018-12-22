@@ -30,12 +30,18 @@
 
 ##3.The ZooKeeper service
 ##3.1 概述
-    Znode
-        常规节点(Persist Node)：客户端显示创建和删除；
-        临时性节点(Ephemeral)：创建并显示删除，或会话终止时系统自动删除；
+    4种Znode类型
+        永久节点(Persistent)：客户端显示创建和删除；
+        临时节点(Ephemeral)：创建并显示删除，或会话终止时系统自动删除；
+        永久+序列号(Persistent_Sequential):客户端显示创建和删除，并带有递增序列号；
+        临时+序列号(Ephemeral_Sequential):创建并显示删除，或会话终止时系统自动删除，并带有递增序列号；
     
     Watch机制
-        一次性触发器，不可更改；
+        Zookeeper所有的读操作——getData(),getChildren(),和exists()都可以设置监视(watch),监视事件可以理解为一次性的触发器。
+        官方定义如下:
+            a watch event is one-time trigger,
+            sent to the client that set the watch,
+            which occurs when the data for which the watch was set changes。
         不需要轮询，事件通知；
     
     数据模型
