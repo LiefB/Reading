@@ -94,6 +94,6 @@
 * GraphLab
     + Low, Y., Gonzalez, J., Kyrola, A., Bickson, D., Guestrin, C., & Hellerstein, J. M. (2012). Distributed GraphLab: A Framework for Machine Learning and Data Mining in the Cloud. PVLDB, 5(8), 716–727.
 
-* Parameter Server
+* [Parameter Server](Parameter Server.txt)
     + Li, M., Andersen, D. G., Park, J. W., Ahmed, A., Josifovski, V., Long, J., … Ahmed, A. (2014). Scaling Distributed Machine Learning with the Parameter Server. In OSDI (pp. 583–598).
     + Abadi, M., Barham, P., Chen, J., Chen, Z., Davis, A., Dean, J., … Zheng, X. (2016). TensorFlow: A System for Large-Scale Machine Learning. In OSDI (pp. 265–284).
