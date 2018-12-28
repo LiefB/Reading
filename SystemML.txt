@@ -1,0 +1,114 @@
+[TOC]
+#SystemML
+##0.Abstract
+    定制的机器学习算法、增长的数据规模 ==> 分布式、数据并行框架，如MapReduce、Spark；
+    线性代数原语、分析函数、透明运行（分布式、数据并行、基于代价估算的高效低级的执行计划、内存单节点、大规模分布式算子）；
+
+
+##1.Introduction
+    declarative ML：目标是对机器学习算法的高层次的描述，通过将算法语义和数据表示以及运行时执行计划分离，以简化机器学习算法的开发和部署；
+        提高生产效率；
+        简化部署、运行时环境；
+        运行时执行计划的自动优化；
+    支持众多算法：
+        descriptive statistics, classification, clustering, regression, matrix factorizations, dimensions reduction, and survival models for training and scoring. 
+    SystemML on Spark；
+    end-to-end ML algorithms；
+
+
+##2.Background
+###2.1 SystemML Architecture
+    DML：a declarative、high-level language；
+    多线程、单节点(scale up)内存算子、集群(scale out)分布式MR或Spark算子；
+    
+    Language：
+        DML提供线性代数原语、一个丰富的分析函数集、矩阵运算、用户定义外部函数、控制结构(包括parfor loops、递归)；
+        解析DML脚本为语句块；
+        输入的格式、行数、列数、零值；
+        每个语句块构造一个high-level算子(HOPs)的DAG；
+    Optimizer：
+        优化器工作在high-level算子的DAG之上；
+        high-level算子的DAG编译成low-level算子(LOPs)的DAG；
+        优化器根据内存估算生成可执行的运行时程序的指令；
+    Runtime：
+        将生成的运行时程序运行在本地控制程序(CP,Control Program)中，如driver process；
+        driver负责重新编译、运行单节点内存控制程序指令、维持一个内存缓冲池、发起MR或Spark作业；
+
+
+##3.Optimizer Integration
+    内存预算与约束、物理算子选择、parfor优化器扩展
+
+###3.1 Spark-Specific Rewrites
+    automatic distributed caching、checkpointing、partitioning；
+    Caching/Checkpointing Injection：
+        RDD persist的storage level（如MEMORY_AND_DISK）；
+        在persist后注入checkpoint；
+        在对循环体内所有只读变量做循环之前注入checkpoint；
+        稀疏矩阵 ==> 内存高效的表示；
+    Repartition Injection：
+        避免不必要的shuffle（如co-partition）；
+
+###3.2 Memory Budgets and Constraints
+    Memory Budgets：
+        configuration：driver memory(Md)、executor memory(Me)、number of executors(|E|)、data fraction(δ)、shuffle fraction(β)；
+        control program memory budget =  αMcp；
+        broadcast memory budget = βδMe；
+        total data memory budget = |E|δMe；
+    Memory Estimate：
+        matrix size：dimension、saprsity；
+    Optimization Objective：
+        在内存约束下最小化程序执行时间；
+
+###3.3 Operator Selection
+    Basic Spark Execution Type
+    Transitive Spark Execution Type
+        如输入很大，输出很小，可以chain输入；
+    Physical Operator Selection
+        以分布式矩阵乘法为例，
+        尽量避免shuffle：
+            ①广播变量，broadcast输入中的一个矩阵；
+            ②分区保护算子；
+            ③特殊的伪元算子；
+    Fused Physical Operators
+        ①选择计算以利用稀疏性；
+        ②减少中间结果；
+        ③单节点内存计算中减少缓冲池溢写；
+
+###3.4 Extended ParFor Optimizer
+    除了数据并行，SystemML还提供任务并行：Parfor loops；
+    Physical ParFor Operators：
+        ①local parfor：单节点多线程执行、并行Spark作业；
+        ②remote parfor：像单个map端Spark作业那样执行整个loop；
+        ③remote_dp parfor：分片执行；
+    Deffered Checkpoint/Repartition Injection：
+        caching/checkpointing and repartitioning延迟到parfor优化之后；
+    Eager Checkpointing/Repartitioning：
+    Fair Scheduling for Concurrent Jobs：
+    Degree of Parallism：
+         guarded collect and parallelize：a memory constraint of Mcp/2；
+
+
+##4.Runtime Integration
+###4.1 Distributed Matrix Representation
+    所有输入都会转换为Binary Block Metrices：
+        JavaPairRDD<MatrixIndexes, MatrixBlock>；
+        square blocks：①缓存友好；②简化某些操作（如矩阵的转置）；
+        对稀疏矩阵块使用modified compressed sparse row（MCSR）format实现高效增量构造；
+        memory-efficient CSR format避免不必要的溢写；
+    Serialization and Partitioning：
+        ①最小化shuffle RDDs的序列化大小；
+            space-efficient block format + shuffle compression ==> small transfers；
+        ②通过co-partitioning避免shuffle；
+            use default hash partitioner ==> load balance、avoid breaking DAGs
+            of partitioning-preserving operations
+
+###4.3 Buffer Pool Integration
+    Basic Buffer Pool Integration：
+    Lineage Tracking：
+    Guarded Collect/Parallelize：
+    Partitioned Broadcast Variables：
+
+###4.4 Partitioning-Preserving Operations
+    keys do not change;
+    ①preserve partitioning over chains of operations；
+    ②exploit partitioning through custom physical operators；
