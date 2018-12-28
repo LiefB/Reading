@@ -48,3 +48,33 @@
         X-Stream：edge-centric
         Giraph：基于BSP
         GraphLab：异步不需要synchronize supersteps，打破BSP模型
+
+#2018-12-28
+    通过co-partition避免shuffle？
+    窄依赖的join
+    
+    关系型数据库查询优化
+        并、交、叉、选择、投影、连接
+    SystemML查询优化
+        矩阵加减乘除
+    
+    机器学习3要素：
+        模型-参数：线性、非线性
+        策略-数据：线性回归目标使得误差最小
+        算法-计算：如何使误差达到最小(如梯度下降)
+    
+    从编程和实现角度看：
+        以计算为中心
+            注重计算逻辑
+            SystemML 线性回归
+        以数据为中心
+            数据之间有关系
+            GraphLab 
+        以模型为中心
+            有很多参数
+            parameter server 深度神经网络
+    
+    凸优化
+    
+    26号寒假
+    20-25分钟，讲为主，可打断。
