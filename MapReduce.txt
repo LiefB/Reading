@@ -92,3 +92,114 @@
 
 ###7.5 其它
     辅助额外输出文件、跳过坏的记录、本地执行、状态信息（Http Server状态页）、Counter
+
+
+
+
+
+
+#Map-Reduce-Merge
+##0.Abstract
+    MapReduce不直接支持处理多重关联的混合数据集（关系型操作如join），而处理关系型数据又是一种普遍需求；
+    Map-Reduce-Merge模型为MapReduce添加了一个Merge语义，可以利用map和reduce模块高效地归并已经分区和排序/哈希的数据；
+    且该新模型可以表达关系型代数算子并实现了几种join算法；
+
+
+##1.Introduction
+    Map-Reduce-Merge通过附加的MapReduce步骤，来实现多种混合数据集的关系代数原语(如join)；
+    关系型算子可以由map、reduce和merge组合而成，可以实现多个并行版本的join算法：sort-merge、hash、block nested-loop；
+
+
+##2.MapReduce
+###2.1 Features and Principles
+    ①廉价不可靠商用硬件，而非SMP或MMP；
+    ②高可扩展RAIN(Redundant Array of Independent(and Inexpensive) Nodes)集群，而非基于RAID的SAN或NAS；
+    ③容错但易于管理，不想DBMS一样复杂的备份、恢复；
+    ④简化且受限但强大，只关注map、reduce；
+    ⑤高度并行但抽象；
+    ⑥高吞吐，移动计算到数据节点；
+    ⑦共享磁盘存储但不共享计算；
+    ⑧面向集合的Key-Value对，文件抽象；
+    ⑨函数式编程原语；
+    ⑩分布式分区/排序框架；
+    ⑪可应用到通用数据处理任务；
+
+###2.2 Homogenization
+    key + datasource；
+    A final map/reduce task can then apply to all the homogenized datasets combined. 
+    Data entries from different datasets with the same key value will be grouped in the same reduce partition.
+    User-defined logic can extract data-sources from values to identify their origins, then the entries from different sources can be merged.
+    只能做等值连接；
+
+
+##3.Map-Reduce-Merge
+    map:      (k1, v1)α                   →  [(k2, v2)]α
+    reduce:   (k2, [v2])α                 →  (k2, [v3])α
+    merge:    ((k2, [v3])α, (k3, [v4])β)  →  [(k4, v5)]γ
+    其中α、β是dataset的lineage；
+    依旧是原生的map、reduce；
+    唯一的变化是：
+        增加了lineage；
+        (k2,[v3])而非仅仅[v3]；
+    做出变化的原因是merge阶段需要输入数据按key组织(partitioned, sorted/hashed)；
+
+###3.2 Implementation
+    Merge Components：
+        partition selector；
+        processor function；
+        merge function；
+        configurable iterator；
+    partition selector：
+        通过merger number决定merger从哪些reducer中取数据；
+        (reducer number用于决定从哪些mapper中取数据，mapper number决定取哪些输入文件的split)
+        当前merger number + 两个reducer numbers集合，用户自定义的逻辑会从集合中删除不相关的reducers，只有留在集合中的reducers才会被读取并在merger中merge；
+        partitionSelector.select(mergerNumber, leftReducerNumbers, rightReducerNumbers);
+    processor：
+        用户自定义的用于处理一个source数据的函数；
+    merger:
+        用户自定义处理逻辑，mapper处理一对key/value、reducer处理key-grouped value集合、merger处理两对key/values；
+    configurable iterator:
+        logical iterator：
+            mapper：input flie split；
+            reducer：a merge-sorted stream；
+            merger：two logical iterators；
+        a user-configurable module(iterator-manager) controls the movement of these configurable iterators；
+        nested-loop、sort-merge、hash join；
+
+
+##4.Applications to Relational Data Processing
+###4.1 Map-Reduce-Merge Implementations of Relational Operators
+    Map-Reduce-Merge是关系完备的。
+    Projection：
+        mapper：(k, v) -> (k', v')；
+    Aggregation：
+        sort-by-key、 group-by-key保证了输入到reducer是一系列(k, [v])集合，reducer可以在这个grouped value list上调用aggregate函数；
+    Generalized Selection：
+        如果选择条件发生在一个数据源 => 用mapper实现选择(filter)；
+        如果选择条件发生在aggregate或一组values => 用reducer实现选择(filter)；
+        如果选择条件发生在多个数据源的属性或aggregate => 用merger实现选择(filter)；
+    Joins：
+        ①Block Nested-Loop Join：
+            Map：使用hash partitioner将记录分到hashed buckets中(一个bucket对应一个reducer)；
+            Reduce：group and aggregate partitions using a hash table；
+            Merge：nested-loop；
+        ②Sort-Merge Join：
+            Map：使用range partitioner将记录分到有序的buckets中(一个bucket对应一个reducer)；
+            Reduce：使用外部排序(priority queue)归并成一个sorted set；
+            Merge：已排序，只要merge；
+        ③Hash Join：
+            Map：使用hash partitioner将记录分到hashed buckets中(一个bucket对应一个reducer)；
+            Reduce：group and aggregate partitions using a hash table；
+            Merge：a build and a probe；
+    Set Union：
+        sorted and grouped，
+        reducer中去重简单，merger会收到来自多个reducers的数据，需要再次去重；
+    Set Intersection：
+        merger iterate每个输入，并产生共同的输出；
+    Set Difference：
+        merger iterate每个输入，并产生difference的输出；
+    Cartesian Product：
+        可以用nested-loop实现；
+    Rename：
+        简单；
+
