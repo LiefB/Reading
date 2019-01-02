@@ -179,18 +179,7 @@
         如果选择条件发生在aggregate或一组values => 用reducer实现选择(filter)；
         如果选择条件发生在多个数据源的属性或aggregate => 用merger实现选择(filter)；
     Joins：
-        ①Block Nested-Loop Join：
-            Map：使用hash partitioner将记录分到hashed buckets中(一个bucket对应一个reducer)；
-            Reduce：group and aggregate partitions using a hash table；
-            Merge：nested-loop；
-        ②Sort-Merge Join：
-            Map：使用range partitioner将记录分到有序的buckets中(一个bucket对应一个reducer)；
-            Reduce：使用外部排序(priority queue)归并成一个sorted set；
-            Merge：已排序，只要merge；
-        ③Hash Join：
-            Map：使用hash partitioner将记录分到hashed buckets中(一个bucket对应一个reducer)；
-            Reduce：group and aggregate partitions using a hash table；
-            Merge：a build and a probe；
+        见4.2；
     Set Union：
         sorted and grouped，
         reducer中去重简单，merger会收到来自多个reducers的数据，需要再次去重；
@@ -203,3 +192,28 @@
     Rename：
         简单；
 
+###4.2 Map-Reduce-Merge Implementations of Relational Join Algorithms
+    ①Block Nested-Loop Join：
+        Map：使用hash partitioner将记录分到hashed buckets中(一个bucket对应一个reducer)；
+        Reduce：group and aggregate partitions using a hash table；
+        Merge：(利用内存cache)block nested-loop；
+    ②Sort-Merge Join：
+        Map：使用range partitioner将记录分到有序的buckets中(一个bucket对应一个reducer)；
+        Reduce：使用外部排序(priority queue)归并成一个sorted set；
+        Merge：已排序，只要merge；
+    ③Hash Join：
+        Map：使用hash partitioner将记录分到hashed buckets中(一个bucket对应一个reducer)；
+        Reduce：group and aggregate partitions using a hash table；
+        Merge：a build and a probe；
+
+
+##5.Optimization
+###5.1 Optimal Reduce-Merge Connections
+    减少Reducers和Mergers之间的网络连接；
+    partition selector，R^2 + R  ==>  2R (没懂)
+
+###5.2 Combining Phases
+    ReduceMap，MergeMap；
+    ReduceMerge；
+    ReduceMergeMap；
+    组合语句，包含很多磁盘读写传递；
