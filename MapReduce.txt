@@ -217,3 +217,31 @@
     ReduceMerge；
     ReduceMergeMap；
     组合语句，包含很多磁盘读写传递；
+
+
+
+
+
+#MapReduce Online
+##0.Abstract
+    批处理MapReduce：
+        将map和reduce任务的整个输出materialize，在大规模集群部署下可以更方便地实现fault tolerance；
+    HOP(Hadoop Online Prototype)：
+        支持持续查询，可以用于事件监控和流处理；
+        数据在算子之间是pipelined的；
+
+
+##1.Introduction
+    批处理MapReduce：
+        data-centric；
+        materialization；
+    Hadoop Online Prototype：
+        中间数据在算子间pipelined；
+    Pipelined MapReduce's benefits：
+        ①mappers产生的数据一到达就可以被reducers处理，使用online aggregation技术在执行过程中产生和refine最终结果；
+        ②支持持续查询，可用于事件监控和流处理；
+        ③数据发送给下游算子更迅速，加快处理速度；
+    Pipelined MapReduce's challenges：
+        ①新的fault tolerance；
+        ②pipelines之间的communication；
+        ③生产者和消费者协同调度；
