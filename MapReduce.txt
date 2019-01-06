@@ -1,5 +1,5 @@
 [TOC]
-#MapReduce
+#1.MapReduce
 ##1.概述
 ###1.1 分布式并行编程
     过去：单指令、单数据流顺序执行 --> 提高CPU性能
@@ -98,7 +98,9 @@
 
 
 
-#Map-Reduce-Merge
+
+
+#2.Map-Reduce-Merge
 ##0.Abstract
     MapReduce不直接支持处理多重关联的混合数据集（关系型操作如join），而处理关系型数据又是一种普遍需求；
     Map-Reduce-Merge模型为MapReduce添加了一个Merge语义，可以利用map和reduce模块高效地归并已经分区和排序/哈希的数据；
@@ -222,7 +224,50 @@
 
 
 
-#MapReduce Online
+
+
+
+#3.Twister：a runtime for Iterative MapReduce
+##0.Abstract
+    支持高效的迭代MapReduce计算；
+
+
+##1.Introduction
+    传统的并行应用使用Message Passing，如MPI、PVM使用运行时提供的复杂的通信和严格的同步约束；
+    聚类、机器学习、计算机视觉等 ==> 需要迭代计算；
+    Twister：
+        基于发布/订阅消息机制进行通信和数据传输；
+        为MapReduce扩展了broadcast和scatter类型数据传输；
+
+
+
+
+
+
+
+
+
+#3.HaLoop：Efficient Iterative Data Processing
+##0.Abstract
+    MapReduce和Dryad等缺少对迭代计算的内建支持；
+    loop-aware、caching mechanism；
+
+
+##1.Introduction
+    MapReduce不天生支持迭代计算，需要编程者发动多个MapReduce作业来实现迭代计算，且存在以下两个主要问题：
+        问题①在迭代之间许多数据是保持改变的，却仍需要在每个迭代中重新加载、处理这些没变的数据，浪费了I/O、网络带宽和CPU资源；
+        问题②迭代终止条件可能涉及探测何时到达了fixpoint，这个条件可能需要给每次迭代添加额外的MapReduce作业；
+    HaLoop：
+        ①在第一次迭代中cache不变的数据，以在后面的迭代中重用；
+        ②cache reducer输出，以检查是否到达fixpoint；
+
+
+
+
+
+
+
+#5.MapReduce Online
 ##0.Abstract
     批处理MapReduce：
         将map和reduce任务的整个输出materialize，在大规模集群部署下可以更方便地实现fault tolerance；
@@ -239,7 +284,8 @@
         中间数据在算子间pipelined；
     Pipelined MapReduce's benefits：
         ①mappers产生的数据一到达就可以被reducers处理，使用online aggregation技术在执行过程中产生和refine最终结果；
-        ②支持持续查询，可用于事件监控和流处理；
+        ②支持持续
+        查询，可用于事件监控和流处理；
         ③数据发送给下游算子更迅速，加快处理速度；
     Pipelined MapReduce's challenges：
         ①新的fault tolerance；
