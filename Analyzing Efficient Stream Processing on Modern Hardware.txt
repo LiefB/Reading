@@ -1,0 +1,119 @@
+[TOC]
+#Analyzing Efficient Stream Processing on Modern Hardware
+高效流处理——硬件
+##0.Abstract
+    当前主流SPEs(Stream Processing Engines)
+        低延迟；
+        Message Passing的pipelines；
+        基于partition的scale-out；
+    本文：提出基于现代主流硬件的scale-up
+        提升单节点throughput；
+
+
+##1.Introduction
+    当前主流SPEs如Flink、Spark、Storm都是为了平台独立使用JVM，而JVM对硬件的高度抽象 ==> 无法获得高性能；
+    scale-up系统优点：避免了节点间数据传输、约减的同步；
+
+
+##2.Background
+    流处理引擎支持无界持续数据流的持续查询、实时查询保证；
+
+###2.1 Streaming Systems
+    两类SPEs：
+        ①scale-out：
+            Flink、Spark、Storm，基于JVM；
+        ②scale-up：
+            Streambox，多核处理器优化；
+            SABER，利用GPUs；
+            Trill，广义查询(beyond SQL)；
+    两种处理模型：
+        ①micro-batching：
+            Spark、Trident、SABER；
+        ②Pipelined tuple-at-a-time：
+            Flink、Storm；
+
+###2.2 Modern Hardware
+    现代主流硬件3大资源利用：CPU、主存、网络；
+    CPU：
+        multi-core CPUs、multi-socket CPUs、NUMA；
+    内存：
+        terabytes main memory；
+    网络：
+        新网络技术如InfiniBand，带宽甚至比内存带宽还快！ ==> 
+        移动数据(传统网络架构) --> 移动计算(MapReduce) --> 移动数据(高速网络)
+
+
+##3.Data-Related Optimization
+###3.1 Data Ingestion
+    传统：sockets、分布式文件系统、messaging system；
+    新网络技术：InfiniBand；
+    新网络技术使得数据消费速率接近主存甚至超过主存；
+    提高网络带宽使得系统瓶颈从网络变为CPU；
+    RDMA远程直接内存访问：直接访问远程主机内存而无须远程CPU，远程CPU的cache也不会被污染，zero-copy支持使用buffers收发消息而无须软件网络栈；
+    两种RDMA通信模型：单边、双边；
+    实验：基于JVM的分布式实现会被JVM限制而不如C++实现能更好地利用网络带宽；
+
+###3.2 Data Exchange between Operators
+    通过队列实现异步处理(解耦生产者和消费者)，队列成了瓶颈(尤其是慢消费导致的反压)；
+    实验：C++实现只能利用1/4内存带宽，Java实现只能利用1/10内存带宽；
+    想要获得高性能，需要移除潜在瓶颈的队列；
+
+
+##4.Processing-Related Optimization
+###4.1 Operator Fussion
+    Interpretation-based Query Execution：
+        Flink、Spark、Storm都采用Interpretation-based Query Execution；
+        如果一个operator实例的输出只发送给一个operator，那么这两个operator可以融合；
+        
+    Compilation-based Query Execution：
+        在一个pipeline中融合operator，直到出现pipeline-breaker；
+        pipeline-breaker需要full materialization
+            在数据库和批处理中：sorting、join、aggregation等；
+            在流处理中：windowed-aggregation等；
+        除去了message passing的队列，通过CPU寄存器传输消息；
+        另外，在输入流添加紧循环，增强了数据和指令的局部性；
+        提升了CPUs的资源利用率；
+        
+    Discussion
+        Compilation-based Query Execution能更好地利用硬件资源，消除了队列、避免了函数调用、针对硬件的代码优化；
+        但是，scale-out的SPE通常在不同节点之间使用队列来解耦生产者和消费者；
+
+###4.2 Operator Fission 
+    1.Upfront Partitioning：
+        partitioning functions(by key)，消费者的负载均衡依赖于分区函数(数据是否均匀，若倾斜则严重影响吞吐)；
+        每个分区产生的中间结果需要拼接合并，可以通过并行写到一个分布式文件系统来实现；
+    2.Late Merge
+        ①Late Local Merge：
+            将部分结果存储到一个本地数据结构中；
+            当遇到soft pipeline-breaker(如windowed aggregation)时，需要归并到一个全局数据结构中(可以使用parallel tree aggregation算法，比UP中简单的拼接复杂)；
+        ②Late Global Merge：
+            所有工作线程协同创建一个全局结果；
+            消除了额外的merge步骤，转而引入同步操作；
+            为了减小代价，需要利用无锁的数据结构、使用原子compare-and-swap指令的细粒度更新来消减竞争；
+        local merge 和 global merge二选一：
+            local merge适用于高竞争(小的组基数)，减少了同步；
+            global merge适用于低竞争(大的组基数)，出去了最终额外的merge步骤；
+    3.Discussion
+        当前主流SPEs：
+            scale-out + Upfront Partitioning + Interpretation-based Query Execution；
+        本文scale-up系统：
+            scale-up + Late Merge + Compilation-based Query Execution；
+            queue是瓶颈，Late Merge移除了queue；
+
+###4.3 Windowing
+    窗口是流系统的核心特征：
+        将概念上无界数据流分成有界数据；
+    一个高效的窗口机制需要最小化大量并行处理的同步代价；
+        本文无锁连续窗口机制实现：
+            使用双缓冲；
+            使用细粒度同步原语(如原子指令)，而不是粗粒度锁来减小同步开销；
+            使用on-the-fly aggregation，比aggregation tree更小的内存占用
+    Alternating Window Buffers：
+        一直有一个active buffer接收到来的tuples；
+        non-active buffers存储之前窗口的结果、完成聚合计算、输出结果、重新初始化buffer memory；
+        因此不会延迟输入流的处理，提高了通量；
+        使用无锁数据结构，利用原子compare-and-swap指令，支持并行访问和修改；
+    Detecting Window Ends：
+        输入流的连续性，无锁实现、定时器线程、事件驱动技术？？？愣是看不懂什么连续性啊？
+    Extensions：
+        增量聚合；
