@@ -1,0 +1,97 @@
+[TOC]
+#Yarn
+##0.Abstract
+* MapReduce1.0：
+    * 编程模型与资源管理框架紧耦合；
+    * 任务控制流中心化处理，导致调度器可扩展性不高；
+* Yarn：
+    * 解耦编程模型与资源管理
+
+
+##1.Introduction
+* MapReduce1.0：
+    * 滥用MapReduce，如map-only、iterative、将MapReduce作为不相关关键的基准；
+* Yarn：
+    * 滥用MapReduce1.0的副作用；
+    * 资源管理，可以在Yarn上灵活地选择编程模型(Dryad、Giraph、Spark、Storm、Tez等)；
+
+
+##2.History and rational
+* scalability
+* multy-tenancy、servicebility
+    * ad-hoc clusters
+    * HoD
+* Locality awareness、High cluster utilization、Reliablity/Availablity
+    * shared MapReduce clusters
+* Secure
+* Support for Programming Model Diversity
+    * iterative(使用map-only MapReduce太差劲了)
+
+
+##3.Architecture
+###3.1 Overview
+* RM拥有中心化、全局的集群资源，可以实现公平、容量、局部性的调度；
+* ResourceManager
+    * 与NM Communication（心跳、资源信息）；
+    * 动态分配Container租赁；
+* NodeManager
+    * 监测资源可用性；
+    * 报告错误；
+    * container（cpu、memory...）生命周期管理(starting、killing...)；
+* client
+    * 提交作业给RM，accepted的作业会传递给scheduler，scheduler一旦拥有足够的资源后就会运行accepted的作业；
+* AM
+    * 向RM申请container资源，AM一旦申请到container资源后就会用该租赁发起特定应用的请求(如MapReduce应用的maptask和reducetask)；
+
+###3.2 Resource Manager
+* 两个公共接口：①客户端提交应用；②AM的协商资源；
+* 一个中间接口：NM的集群监控和资源访问管理；
+* AM ResourceRequest：
+    * ①number of containers (e.g., 200 containers)；
+    * ②resources per container（2GB RAM , 1 CPU）；
+    * ③locality preferences；
+    * ④priority of requests within the application
+* RM generate containers together with token；
+
+###3.3 Application Master
+* AM本身也运行在一个容器中，并向RM汇报自身健康心跳；
+* 向RM申请资源；
+* locality优化，选择离maptask最近的一个HDFS数据副本；
+
+###3.4 Node Manager
+* 向RM注册，并汇报心跳信息；
+* 汇报memory、cpu等资源信息；
+* 授权容器租赁、管理容器依赖、监测执行、向容器提供一系列服务；
+* Container Launch Context（CLC）：
+    * （环境变量、远程可访问存储的依赖、安全token、NM服务、创建进程必要的命令）
+* 认证了租赁以后，NM为container配置环境变量；
+
+###3.5 Yarn framework/application writers
+* AM传递CLC给RM;
+* 当RM启动AM时，AM需要向RM注册，并通过心跳协议向RM汇报自己的健康状况；
+* 一旦RM分配了一个Container，AM可以构造一个CLC来启动相关NM上的Container，并检测运行状况，在资源需要回收时停止容器，监测工作的进度是AM的职责；
+* 一旦AM完成了工作，它就会想RM取消注册并干净地退出；
+* 文章作者说AM特别复杂；
+
+###3.6 Fault tolerance and availability
+* 写这篇文章时，RM还是单点，通过将RM状态信息写入一个持久化存储中来实现recovery：
+    * 杀掉所有的Container（包括AM），并重启；
+* 努力实现：
+    * 恢复用户的流水线；
+    * AMs（状态）在RM重启时可以survive；
+    * Yarn集群高可用（standby同步、选主）；
+* 当一个NM宕机时：
+    * RM通过心跳超时监测到NM失效；
+    * 标记该NM上的Containers为killed；
+    * 报告该failure给所有运行中的AMs；
+    * AM有责任处理节点失败，可能会redo该失败节点上Containers所做的工作；
+    * 如果节点故障仅仅是片刻的，NM会与RM重新同步
+
+##Mesos、Yarn
+* Resource Manager
+    * Mesos：offer-based
+    * Yarn：request-based
+* scheduler
+    * Mesos：a pool of central schedulers
+    * Yarn：a per-job intraframework scheduler
+    * Yarn支持late binding，每个独立的job可以做local optimization；另一方面，Yarn的per-job ApplicationMaster比Mesos的方式开销更大；

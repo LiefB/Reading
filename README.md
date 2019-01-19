@@ -12,7 +12,7 @@
 
 ## 资源管理系统
 
-* Yarn
+* [Yarn](Yarn.txt)
     + Vavilapalli, V. K., Murthy, A. C., Douglas, C., Agarwal, S., Konar, M., Evans, R., … Saha, B. (2013). Apache Hadoop yarn: Yet another resource negotiator. In SoCC (p. 5:1-5:16).
 * Mesos
     + Hindman, B., Konwinski, A., Zaharia, M., Ghodsi, A., Joseph, A. D., Katz, R., … Stoica, I. (2010). Mesos : A Platform for Fine-Grained Resource Sharing in the Data Center. In NSDI.
