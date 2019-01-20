@@ -229,25 +229,86 @@
 
 #3.Twister：a runtime for Iterative MapReduce
 ##0.Abstract
-    支持高效的迭代MapReduce计算；
+* 支持高效的迭代MapReduce计算；
 
 
 ##1.Introduction
-    传统的并行应用使用Message Passing，如MPI、PVM使用运行时提供的复杂的通信和严格的同步约束；
-    聚类、机器学习、计算机视觉等 ==> 需要迭代计算；
-    Twister：
-        基于发布/订阅消息机制进行通信和数据传输；
-        为MapReduce扩展了broadcast和scatter类型数据传输；
+* 传统的并行应用使用Message Passing（如MPI、PVM），可以提供的一套复杂的通信拓扑和严格的同步构成；相反的，MapReduce等高级编程模型支持简单的通信拓扑和同步构成；
+* MapReduce在某些应用中表现突出，但是在聚类、机器学习、计算机视觉等的迭代计算中表现不佳，每一步迭代都重复加载、处理所有数据；
+* Twister：
+    基于发布/订阅消息机制进行通信和数据传输；
+    为MapReduce扩展了broadcast和scatter类型数据传输；
+
+
+##2.MapReduce
+* 回忆MapReduce，此处不再赘述；
+
+
+##3.Iterative MapReduce With Twister
+###3.1 Static vs. Variable Data
+* 静态数据在计算中保持不变，可变数据是每次迭代计算的结果且是下一次迭代的输入；
+
+###3.2 Long Running Map/Reduce Tasks
+* 在每次迭代中不reload静态数据；
+* 而在Hadoop、DryadLINQ中每次迭代都要重新创建map/reudce task以及加载静态数据(代价很高)；
+
+###3.3 Granularity of Tasks
+* 通过配置的map task，一个map task可以访问多个数据文件blocks，以减少中间结果数据量；
+* Hadoop中的Combiner也是同样的目的；
+
+###3.4 Side-effect-free Programming
+* 只存储静态配置，不存储临时状态；（没懂什么意思，副作用？？？）
+
+###3.5 Combine Operation
+* Combine操作：可以通过Combine操作来产生一个所有reduce outputs的collective output；
+
+###3.6 Programming Extensions
+* MapReduceBCast(Value value)：发送一个Value (MapReduce中为(key, value) pairs(可以是参数、资源名、数据...))对给所有map tasks；
+* configureMaps(Value[] values)、configureReduce(Value[] values)
+
+
+##4.Twister Architecture
+![](http://ww1.sinaimg.cn/mw690/006aTs3igy1fzcv8euxqvj30r60k3qb6.jpg)
+* in-memory；
+* 从worker nodes本地磁盘加载数据；
+* 在worker nodes的分布式内存中处理中间数据；
+* 发布/订阅消息基础结构通信：
+    * ①发送/接收控制事件；
+    * ②客户端驱动发送数据给守护进程；
+    * ③map和reduce任务之间的数据传输；
+    * ④将reduce任务的输出发送回客户端驱动来唤醒combine操作；
+* 架构组成：
+    * ①客户端driver，驱动整个MapReduce计算；
+    * ②运行在worker node上的守护进程，接收命令和数据；
+    * ③broker network（发布/订阅消息结构）；
+    
+###4.1 Handling Input and Output Data
+* file based input format;用户需要提前将大量数据分成许多的小文件；
+* 从partition file中读取分布在worker nodes的输入文件的元数据信息(file_id, node_id, file_path, replication_no)；
+*  提供类似于GFS、HDFS部分功能的文件操作工具；
+*  也可以通过broker network将输入数据发送给map tasks，对大量的输入数据很低效，但是对于发送一些小量的可变数据（如参数、矩阵的行数、集群中心等）很有用；
+
+###4.2 Handling Intermediate Data
+* map tasks输出的中间结果通过broker network直接push给相应的reduce tasks，缓存在内存中知道reduce计算开始；
+* 若中间结果集太大，可扩展Twister运行时将reduce的输入存储在本地磁盘中，而不是内存缓冲中；
+
+###4.3 Use of Pub/Sub Messaging
+* NaradaBrokering系统配置一个broker network；
+
+###4.4 Scheduling Tasks
+* cache、static sheduling
+
+###4.5 Fault Tolerance
+* 存储迭代间的计算状态，失败时可以回滚状态；
+* 前提条件：①master node不failure；②通信架构独立容错；③数据在计算节点之间有备份；
+* combine操作是迭代MapReduce计算中隐含的全局barrier！可以简化容错的状态，只保存配置信息(static data)来配置map/reduce tasks以及主程序直接发送给map tasks的输入数据；
 
 
 
 
 
 
-
-
-
-#3.HaLoop：Efficient Iterative Data Processing
+#4.HaLoop：Efficient Iterative Data Processing
 ##0.Abstract
     MapReduce和Dryad等缺少对迭代计算的内建支持；
     loop-aware、caching mechanism；
