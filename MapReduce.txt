@@ -308,19 +308,56 @@
 
 
 
+
+
 #4.HaLoop：Efficient Iterative Data Processing
 ##0.Abstract
-    MapReduce和Dryad等缺少对迭代计算的内建支持；
-    loop-aware、caching mechanism；
+* MapReduce和Dryad等缺少对迭代计算的内建支持；
+* loop-aware task scheduler、caching mechanism；
 
 
 ##1.Introduction
-    MapReduce不天生支持迭代计算，需要编程者发动多个MapReduce作业来实现迭代计算，且存在以下两个主要问题：
-        问题①在迭代之间许多数据是保持改变的，却仍需要在每个迭代中重新加载、处理这些没变的数据，浪费了I/O、网络带宽和CPU资源；
-        问题②迭代终止条件可能涉及探测何时到达了fixpoint，这个条件可能需要给每次迭代添加额外的MapReduce作业；
-    HaLoop：
-        ①在第一次迭代中cache不变的数据，以在后面的迭代中重用；
-        ②cache reducer输出，以检查是否到达fixpoint；
+* MapReduce不天生支持迭代计算，需要编程者发动多个MapReduce作业来实现迭代计算，且存在以下两个主要问题：
+    * 问题①在迭代之间许多数据是保持不变的，却仍需要在每个迭代中重新加载、处理这些没变的数据，浪费了I/O、网络带宽和CPU资源；
+    * 问题②迭代终止条件可能涉及探测何时到达了fixpoint，这个条件可能需要给每次迭代添加额外的MapReduce作业，又会导致调度额外的作业、从磁盘读取额外的数据、在网络中移动数据；
+* HaLoop：
+    * ①Loop-Aware，co-locating不同迭代间处理相同数据的tasks；
+    * ②在第一次迭代中cache不变的数据，以在后面的迭代中重用；
+    * ③cache reducer输出，以检查是否到达fixpoint；
+
+
+##2.HaLoop Overview
+###2.1 Architecture
+![](http://ww1.sinaimg.cn/mw690/006aTs3igy1fzd3c7fkqaj30v00qun2g.jpg)
+* 像Hadoop一样依赖于一个分布式文件系统来存储输入/输出数据；
+* 像Hadoop一样Master + Slaves，Client提交作业给Master，Master schedules 并行tasks到Slaves上；
+* 改变：
+    * ①暴露一个新的编程接口以简化迭代MapReduce程序的表达；
+    * ②在Master中添加了loop control模块，重复启动新的map-reduce steps，直到达到终止条件；
+    * ③为迭代应用设计的新的scheduler，可以更好地利用数据局部性；
+    * ④在Slave Nodes上缓存并索引应用数据；
+
+###2.2 Programming Model
+* R[i+1] = R[0] ∪ (R[i] ⋈ L)
+* fixpoint:
+    * 默认:连续两次迭代之间相等;
+    * approximate fixpoint(useful for convergence condition)：
+        * 连续两次迭代之间的差别小于用户定义的阈值；
+        * 达到了最大迭代次数；
+* 写一个HaLoop程序：
+    * 循环体(map-reduce pairs)；
+    * 终止条件；
+    * loop-invariant数据；
+* 只提供API，没有高级的声明查询语言，希望别的高级语言可以建立在此基础之上；
+    * Map、Reduce、AddMap、AddReduce；
+    * SetFixedPointThreshold、ResultDistance、SetMaxNumOfIterations；
+    * SetIterationInput、AddStepInput、AddInvariantTable；
+
+
+##3.Loop-Aware Task Scheduling
+
+
+
 
 
 

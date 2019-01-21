@@ -78,3 +78,21 @@
     
     26号寒假
     20-25分钟，讲为主，可打断。
+
+#2019-01-21
+    静态配置(ip):
+        如3个map machines、2个reduce machines；
+        reduce machines个数直接关系到Partition；
+    默认：
+        一台机器一个map/reduce task；
+        Reduce结果直接存储在每个reduce任务所在机器本地文件系统即可，不用聚合；(hdfs本质也分布)
+    Zookeeper可存储配置信息：
+        可用(智能到时机自动启动reducers)可不用；
+    Ssh远程登录，脚本启动远程机器程序（甚至可以scp传输数据，但最好还是别用）；
+    JVM启动应用程序？
+    ideal deadline：end of March
+    4.5.6 gpu Programming...
+    
+    讨论形式：
+        单周：多篇总结归纳型(读、说、写ability)
+        双周：目前工作汇报(进度控制)
