@@ -1,6 +1,7 @@
 [TOC]
 #Parameter Server
 ##0.Abstract 
+    数据和工作负载在worker节点、server节点维护全局共享参数(向量或矩阵)
     异步数据通信
     灵活的一致性模型
     弹性的扩展能力
@@ -20,11 +21,17 @@
         ②灵活一致性模型：隐藏了同步的代价和延迟；
         ③弹性可扩展：动态扩容；
         ④容错和持久性：Vector clocks保证了网络分区和失败后的良好表现；
-        ⑤易用性：用向量和数组表示全局共享参数；
+        ⑤易用性：用向量和矩阵表示全局共享参数；
 
 ###1.2 Engineering Challenges
-    Communication：用向量、矩阵、张量表示参数
-    FaultTollerance:failover、selfrepair
+    每个server节点只维护一部分参数，每个worker节点也只请求一部分参数；
+    2个挑战：
+        ①Communication：
+            参数可以表示成KV对，但每个更新都发送KV操作开销太大；
+            许多机器学习算法的参数可以用向量、矩阵、张量表示，每次更新workers只需发送向量或矩阵的一部分即可；
+        ②FaultTollerance:
+            Live replication of parameters between servers supports hot failover；
+            continuous faulttolerance；
 
 ###1.3 Related Work
     第一代：使用memcached(key, value) 键值对存储作为同步机制；YahooLDA改进这个机制，增加了一个专门的服务器，提供用户可自定义的更新操作(set, get, update)；
@@ -45,16 +52,20 @@
 
 ###2.1 Goals
     objective function；
-    迭代计算、优化、收敛；
-    大量的数据：trillions of trillion-length feature vectors；
+    迭代计算直到最优或收敛；
+    巨大的训练数据集和模型参数：trillions of trillion-length feature vectors and dimensions；
 
 ###2.2 Risk Minimization
     Risk是指对预测偏差的度量；
     训练数据过少、模型太复杂 --> 过拟合，模型太简单 --> 抓取不到正确决策的相关信息；
-    平衡预测错误与模型复杂度；
+    经验风险函数 = 损失函数 + 模型复杂度；
+    
+    例子：分布式梯度下降
 
 ###2.3 Generative Models
     unsupervised algorithms
+    
+    例子：主题模型
 
 
 ##3.Architecture
@@ -62,15 +73,15 @@
     
     1个Server Group：n个server节点、1个server manager
         server节点：
-            可以跟其他server节点通信，每个server负责自己分到的参数，server group共同维持所有参数的更新。
+            每个server节点只负责全局共享参数的一部分，server节点间相互通信以备份参数增强可靠性或迁移参数增强可扩展性；
         server manager节点：
-            负责维护一些元数据的一致性，比如各个节点的状态，参数的分配情况等；
+            拥有所有server节点的元数据(如各个节点的存活状态，参数分区的分配情况等)的一致性视图；
     
     n个Worker Group：每个group有n个worker节点、1个task scheduler
         worker节点：
-            worker节点之间没有通信，只跟自己对应的server进行通信。
+            每个worker节点只存储训练数据的一部分以进行本地统计计算(如梯度)；worker节点之间没有通信，只与server节点进行通信以更新和拉取共享的参数。
         task scheduler：
-            每个worker group有一个task scheduler，负责向worker分配任务，并且监控worker的运行情况。当有新的worker加入或者退出，task scheduler负责重新分配任务。
+            每个worker group有一个task scheduler，负责向worker分配任务，并且监控worker的运行情况。当有新的worker加入或者退出，task scheduler负责重新分配未完成的任务。
 
 ###3.1 (Key, Value) Vectors
     最小化损失函数的问题，key就是featureID，而value就是它的权值；
