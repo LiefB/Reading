@@ -3,7 +3,7 @@
 ##0.Abstract 
     数据和工作负载在worker节点、server节点维护全局共享参数(向量或矩阵)
     异步数据通信(没有同步的木桶效应)
-    灵活的一致性模型(Sequential、Eventual、Bounded Delay)
+    灵活的一致性模型(Sequential、Eventual、Bounded Delay:trade-off between system efficiency fast algorithm convergence rate)
     弹性的扩展能力(一致性哈希，新的Server可以随时动态插入集合中，无需重新运行系统)
     持续的容错(server备份、worker重启)
 
@@ -142,7 +142,7 @@
 
 ###4.1 Vector Clock
     背景：复杂的任务依赖图和快速恢复；
-    每个key-value pair都关联了一个vector clock，parameter server使用vector clock来记录每个节点中参数的时间戳，能够用来跟踪聚合数据的状态或避免数据的重复发送；
+    每个key-value pair都关联了一个vector clock，parameter server使用vector clock来记录每个节点中参数的时间戳，能够用来跟踪聚合数据的状态或避免数据的重复发送(见Server Management)；
     但是，假设有n个节点，m个参数，一种naive的vector clock实现的空间复杂度是O(n∗m)，当有几千个节点和几十亿的参数时，内存和带宽都无法承受；
     好在，parameter server在push和pull的时候，都是rang-based，这就带来了一个好处：这个range里面的参数共享的是同一个时间戳，这显然可以大大降低空间复杂度；
 
@@ -162,4 +162,43 @@
     注意，key-caching和value-compression可以同时使用；
     
 ###4.3 Consistent Hashing
+    一致性哈希，server节点id和key都插入一个hash ring，每个server节点管理从它的插入点逆时针到下一个插入点之间的key；
+    server manager处理ring management；其它节点缓存key分区到本地；
     
+###4.4 Replication and Consistency
+    每个server节点都存储了它逆时钟方向的k个节点中的key的备份。图中，k=2，S1备份了S2和S3内的key；
+    
+    两种方式保证slave跟master之间的数据一致性：
+    ①Chain replication(链备份，强一致性)：
+        a. 更新：只能发生在数据头节点,然后更新逐步后移，直到更新到达尾节点，并由尾节点向客户确认更新成功； 
+        b. 查询：为保证强一致性，客户查询只能在尾节点进行；
+    ②Replication after Aggregation(延迟备份直至聚合)：
+        两个worker节点分别向server传送x和y，server首先通过一定方式，如f(x+y)进行aggregate，然后再进行备份操作；
+        当有n个worker的时候，复制只需要k/n的带宽。通常来说，k(备份数量)是一个很小的常数，而n的值大概是几百到几千；
+
+###4.5 Server Management
+    要实现系统的容错和动态的扩展系统规模，必须要求系统能够支持动态添加和移除节点；
+    
+    添加一个server节点 ：
+        1. server manager会为新的节点分配相应range的key-value pairs和vector clocks使其充当一个master，这会造成其他server节点的key的变化； 
+        2. 新添节点会获取数据并维护自己为一个master，并备份k份到slaves； 
+        3. server manager将节点变化情况广播出去，接收方可能会移除不再属于自己的key-value pairs和vc(R)，并且将未完成的任务提交给新添的节点；
+    
+    删除一个server节点：
+        server manager通过心跳信号确定一个server死亡，然后就会将该server的key range分配给另一个节点；
+
+###4.6 Worker Management
+    添加一个worker节点：
+        1. task scheduler为新的节点W分配数据； 
+        2. 这个worker节点通过网络或者文件系统加载分配到的训练数据，接着，W会从服务器pull参数； 
+        3. task scheduler会广播节点的变化情况，可能会使一些节点释放一部分训练数据；
+        
+    删除一个worker节点：
+        删除worker通常直接不管该节点，因为丢失一部分训练数据通常并不会影响模型训练结果，但是恢复一个worker可能占用较多资源；
+        当然用户也可以选择用新的worker来替代丢失的worker；
+    
+    
+    
+    
+    
+# ps-lite框架是DMLC组自行实现的parameter server通信框架，是DMLC其它项目的核心，例如其深度学习框架MXNET就依赖了ps-lite的实现。
