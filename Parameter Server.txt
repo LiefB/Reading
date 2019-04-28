@@ -2,10 +2,10 @@
 #Parameter Server
 ##0.Abstract 
     数据和工作负载在worker节点、server节点维护全局共享参数(向量或矩阵)
-    异步数据通信
-    灵活的一致性模型
-    弹性的扩展能力
-    持续的容错
+    异步数据通信(没有同步的木桶效应)
+    灵活的一致性模型(Sequential、Eventual、Bounded Delay)
+    弹性的扩展能力(一致性哈希，新的Server可以随时动态插入集合中，无需重新运行系统)
+    持续的容错(server备份、worker重启)
 
 
 ##1.Introduction
@@ -86,8 +86,9 @@
 ###3.1 (Key, Value) Vectors
     最小化损失函数的问题，key就是featureID，而value就是它的权值；
     LDA问题，key是wordID+topicID，而value就是一个计数值；
-    keys are ordered：
-        将参数看作(K,V)对，赋予他们向量、矩阵的语义，不存在的keys为0；
+    不存在的keys权值为0；
+    大多数的已有的框架都是这么对(key, value)进行抽象的。但是PS框架除此之外还把这些(k,v)对看作是稀疏的线性代数对象（通过保证key是有序的情况下），因此在对vector进行计算操作的时候，也会在某些操作上使用BLAS库等线性代数库进行优化;
+    keys are ordered --> 将参数看作(K,V)对，赋予他们向量、矩阵的语义；
 
 ###3.2 Range Push and Pull
     workers与servers之间通过push和pull来通信。workers通过push将计算好的参数发送到server，然后通过pull从server更新参数。
@@ -97,39 +98,68 @@
         w.pull(R, dest) 
 
 ###3.3 User-Defined Functions on Server
-    server节点除了从workers聚合数据，还可以执行用户定义的函数（server节点有更完整的共享参数的最新信息）；
+    server节点除了从workers聚合数据，还可以执行用户定义的函数（server节点有更完整的或最新的共享参数信息 --> 更新模型参数）；
 
 ###3.4 Asynchronous Tasks and Dependency
     rpc发起tasks，可以是worker对servers发起的push、pull，也可以是scheduler发起的用户自定义函数。tasks可能含有任意数量的子tasks；
-    任务异步执行；
-    调用者标记一个任务已完成，当它收到被调用者的回复（用户自定义函数的返回、pull的键值对请求、空ack）；
-    被调用者标记一个任务已完成，当它的调用已返回并且所有的子任务已完成；
     
-    execute-after-finished依赖：一个任务依赖于另一个任务的执行的完成，如：
+    任务异步执行：
+        调用者标记一个任务已完成，当它收到被调用者的回复（用户自定义函数的返回、pull的键值对请求、空ack）；
+        被调用者标记一个任务已完成，当它的调用已返回并且所有的子任务已完成；
+        
+    默认为了性能被调用者并行执行tasks，但是如果调用者希望串行执行tasks的话可以在两个tasks之间添加execute-after-finished依赖，如:
         等所有worker的参数都被聚合了，server再聚合参数；
         支持灵活的一致性模型；
 
 ###3.5 Flexible Consistency
-    独立的任务通过并行使用CPU、磁盘、网络带宽提高了系统的效率，但这可能会导致节点间数据的不一致性，从而降低算法的收敛速率；
-    系统性能与算法收敛速率之间存在一个trade-off：
+    独立的任务通过并行使用CPU、磁盘、网络带宽提高了系统的效率，但这可能会导致节点间数据的不一致性，从而(使用旧的模型参数计算梯度)降低算法的收敛速率；
+    "系统性能"与"算法收敛速率"之间存在一个"trade-off"：
         算法对于参数非一致性的敏感度；
         训练数据特征之间的关联度；
         硬盘的存储容量；
     
     考虑到用户使用的时候会有不同的情况，parameter server为用户提供了多种任务依赖方式：
         ①Sequential：
-            任务顺序执行，前一个任务结束后一个任务才能开始，也称为Bulk Synchronous Processing（BSP）；
+            任务顺序执行，前一个任务结束后一个任务才能开始，和单线程实现对等，也称为Bulk Synchronous Processing（BSP）；
         ②Eventual：
             所有任务可以并行开始；
         ③Bounded Delay：
-            是sequential与eventual之间的trade-off，可以设置一个τ作为最大的延时时间。也就是说，只有 > τ 之前的任务都被完成了，才能开始一个新的任务；
-            τ=0的情况就是 Sequential； 
-            τ=∞的情况就是 Eventual；
+            是sequential与eventual之间的trade-off，可以设置一个τ作为最大的延时时间。也就是说，只有τ时间之前的任务都被完成了，才能开始一个新的任务；
+            τ=0的情况就是Sequential一致性模型； 
+            τ=∞的情况就是Eventual一致性模型；
+            
+        注意，依赖图可以是动态的。比如调度器可以根据运行时进程来增加或减少最大延迟，以平衡系统性能和算法收敛速率。
 
 ###3.6 User-defined Filters
-    为了弥补基于调度器的流控，parameter server支持用户定义的过滤器来选择性地同步个人键值对，实现一个任务的数据一致性的良好粒度的控制；
+    为了弥补基于调度器的流控，parameter server支持用户定义的过滤器来选择性地同步独立的键值对，实现一个任务内数据一致性的细粒度的控制；
     如significantly modified filter；
 
 
 ##4.Implementation
+    servers使用一致性哈希存储模型参数(key-value pairs)；
+    链备份容错；
+    range-based通信、range-based vector clocks；
 
+###4.1 Vector Clock
+    背景：复杂的任务依赖图和快速恢复；
+    每个key-value pair都关联了一个vector clock，parameter server使用vector clock来记录每个节点中参数的时间戳，能够用来跟踪聚合数据的状态或避免数据的重复发送；
+    但是，假设有n个节点，m个参数，一种naive的vector clock实现的空间复杂度是O(n∗m)，当有几千个节点和几十亿的参数时，内存和带宽都无法承受；
+    好在，parameter server在push和pull的时候，都是rang-based，这就带来了一个好处：这个range里面的参数共享的是同一个时间戳，这显然可以大大降低空间复杂度；
+
+###4.2 Messages
+    一条消息包括一系列key-value pairs、key range R和相关的range vector clock：[vc(R),(k1,v1),...,(kp,vp)] kj∈R and j∈{1,2...p}；
+    这是parameter server中最基本的通信格式，不仅仅是共享的参数，task的message也是这样的格式，只要把这里的(key,value)改成(task ID,参数/返回值)；
+    
+    由于机器学习问题通常都需要很高的网络带宽，因此信息的压缩是必须的:
+    ①key-caching：因为训练数据通常在分配之后都不会发生改变，因此worker没有必要每次都发送相同的key，只需要接收方在第一次接收的时候缓存起来就行了，第二次，worker不再需要同时发送key和value，只需要发送value和key list的hash值就行，这样瞬间减少了一半的通信量；
+    ②value-compression：假设参数是稀疏的，那么就会有大量的0存在，因此，为了进一步压缩，我们只需要发送非0值。parameter server使用Snappy快速压缩库来压缩数据、高效去除0值；
+        用户自定义过滤： 
+            对于机器学习优化问题比如梯度下降来说，并不是每次计算的梯度对于最终优化都是有价值的，用户可以通过自定义的规则过滤一些不必要的传送，再进一步压缩带宽cost： 
+            1. 发送很小的梯度值是低效的： 
+                因此可以自定义设置，只在梯度值较大的时候发送； 
+            2. 更新接近最优情况的值是低效的： 
+                因此，只在非最优的情况下发送，可通过KKT来判断；
+    注意，key-caching和value-compression可以同时使用；
+    
+###4.3 Consistent Hashing
+    
