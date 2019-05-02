@@ -355,6 +355,29 @@
 
 
 ##3.Loop-Aware Task Scheduling
+###3.1 Inter-Iteration Locality
+* 将不同迭代中处理相同数据的map/reduce tasks放置在相同的物理机器上；
+* inter-iteration locality：相邻迭代之间输入数据相同；
+* 要求：reduce任务数量在迭代中要保持固定，这样mappers输出分配到reducers的Hash函数可以保持不变；
+
+###3.2 Scheduling Algorithm
+* 跟踪存储在物理机器上数据分区，利用这些信息调度Inter-Iteration Locality的后续map/reduce任务；
+* Master保存所有slaves节点到其前一次迭代处理数据的映射关系；
+![](http://ww1.sinaimg.cn/mw690/006aTs3igy1fzen9wsbuzj30t20qa0y4.jpg)
+
+
+##4.Caching and Indexing
+###4.1 Reducer Input Cache
+
+
+###4.2 Reducer Output Cache
+
+
+###4.3 Mapper Input Cache
+
+
+###4.4 Cache Reloading
+
 
 
 

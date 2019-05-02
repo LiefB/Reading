@@ -93,6 +93,6 @@
     ideal deadline：end of March
     4.5.6 gpu Programming...
     
-    讨论形式：
+    Thursday讨论形式：
         单周：多篇总结归纳型(读、说、写ability)
         双周：目前工作汇报(进度控制)
